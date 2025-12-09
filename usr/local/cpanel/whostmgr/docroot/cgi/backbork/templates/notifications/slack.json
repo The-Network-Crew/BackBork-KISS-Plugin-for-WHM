@@ -1,0 +1,54 @@
+{
+    "blocks": [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "🛡️ BackBork {{STATUS_EMOJI}} {{TITLE}}",
+                "emoji": true
+            }
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": "*Status:*\n{{STATUS}}"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*Date:*\n{{DATE}}"
+                }
+            ]
+        },
+        {
+            "type": "section",
+            "fields": [
+                {
+                    "type": "mrkdwn",
+                    "text": "*Accounts:*\n{{ACCOUNTS}}"
+                },
+                {
+                    "type": "mrkdwn",
+                    "text": "*Destination:*\n{{DESTINATION}}"
+                }
+            ]
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "{{MESSAGE}}"
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "User: {{USER}} | <{{SERVER_URL}}|View in WHM>"
+                }
+            ]
+        }
+    ]
+}

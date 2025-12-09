@@ -1,0 +1,281 @@
+# 🛡️ BackBork KISS
+
+### Disaster Recovery Backups for WHM — The Simple Way
+
+---
+
+## 🎯 Highlights
+
+> **📦 Simple Backups** — Full account packaging with one click  
+> **🔄 Easy Restores** — Restore full accounts or pick specific components  
+> **⏰ Automated Schedules** — Set it and forget it (hourly/daily/weekly/monthly)  
+> **📧 Smart Notifications** — Email + Slack alerts for success, failure, and cron health  
+> **🔥 Hot Database Backups** — MariaDB-backup support (no table locks!)  
+> **👥 Multi-User Ready** — Root and resellers with separate configs  
+> **🛡️ Self-Monitoring** — Cron health checks with automatic alerts  
+> **🔌 Full JSON API** — Automate everything via authenticated API endpoints  
+> **📝 Audit Logging** — Every action logged with timestamps, users, and IPs  
+
+---
+
+## 🤔 What Is This?
+
+BackBork wraps WHM's existing backup tools into a **clean interface**. No reinventing the wheel — just a nicer way to manage disaster recovery backups.
+
+> **KISS** = Keep It Simple, Stupid
+
+We've built this for sysadmins who want reliable backups without wading through WHM's cluttered interface. Select your accounts, pick a destination, click backup. Done.
+
+---
+
+## ✨ Features At A Glance
+
+| Feature | What It Does |
+|---------|--------------|
+| 📦 **Backup Accounts** | Full account backups to local or SFTP |
+| 🔄 **Restore Accounts** | Full restore or cherry-pick specific parts |
+| ⏰ **Schedule Backups** | Hourly, daily, weekly, or monthly automation |
+| 📧 **Notifications** | Email and Slack alerts when things happen |
+| 🔥 **Hot DB Backups** | MariaDB-backup support (no table locks!) |
+| 👥 **Multi-User** | Root and resellers, each with their own settings |
+| 🛡️ **Cron Monitoring** | Self-checks with alerts if cron goes walkabout |
+| 🔌 **JSON API** | Full REST-style API for automation and scripting |
+| 📝 **Audit Logs** | Complete operation history with user/IP tracking |
+| ⚙️ **22+ Skip Options** | Fine-tune exactly what gets backed up |
+
+---
+
+## 🚀 Quick Start
+
+### Step 1: Install
+
+```bash
+git clone https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM.git
+cd BackBork-KISS-Plugin-for-WHM
+./install.sh
+```
+
+### Step 2: Configure a Destination (if you haven't already)
+
+> [!WARNING]
+> **Do this first!** BackBork reads destinations from WHM — it doesn't create them.
+
+1. **WHM** → **Backup** → **Backup Configuration**
+2. Scroll to **Additional Destinations**
+3. Add SFTP (or use Local)
+4. Click **Validate** ✅
+
+### Step 3: Open BackBork
+
+- **WHM** → **Backup** → **BackBork KISS**
+- Or: `https://your-server:2087/cgi/backbork/index.php`
+
+---
+
+## 📸 Screenshots
+
+### 📦 Backups Tab
+
+Select your accounts, choose a destination, and fire off a backup. The interface shows you exactly what's happening in real-time. See the processing indicator (cog icon at the top) spin when the queue is being processed!
+
+![BackBork Backups Interface](_images/BackBork-Backups.png)
+
+### 🔄 Restores Tab
+
+Browse your backup files and restore entire accounts or just the bits you need. No more hunting through directories.
+
+![BackBork Restores Interface](_images/BackBork-Restores.png)
+
+### ⏰ Schedules Tab
+
+Set up automated backups on your terms — hourly, daily, weekly, or monthly. The cron job handles the rest.
+
+![BackBork Schedules Interface](_images/BackBork-Schedules.png)
+
+### 📋 Queue Tab
+
+Monitor your backup jobs in real-time. See what's pending, what's running, and trigger manual processing when needed.
+
+![BackBork Queue Interface](_images/BackBork-Queue.png)
+
+### 📝 Logs Tab
+
+Every backup, restore, and config change is logged with timestamps, users, and IP addresses. Handy for auditing and troubleshooting.
+
+![BackBork Logs Interface](_images/BackBork-Logs.png)
+
+### ⚙️ Config Tab
+
+Tweak your notification settings, database backup methods, and 22+ skip options. Each user (root/resellers) gets their own config.
+
+![BackBork Config Interface](_images/BackBork-Config.png)
+
+---
+
+## 📖 How To Use
+
+### 🔹 Create a Backup
+
+1. ✅ Select the account(s) you want to back up
+2. 📍 Choose your destination (SFTP or local)
+3. 🚀 Click **Backup Selected**
+4. 👀 Watch the progress in the log output
+
+### 🔹 Restore a Backup
+
+1. Go to the **Restore** tab
+2. Pick the account and backup file
+3. Choose what to restore (full account or specific parts)
+4. Click **Restore** and let it rip
+
+### 🔹 Schedule Backups
+
+1. Go to the **Schedule** tab
+2. Click **Add Schedule**
+3. Select accounts, destination, and frequency
+4. Save — the cron job handles the rest automatically
+
+> [!TIP]
+> Use different schedules for different account tiers. Back up your VIP customers hourly, regular accounts daily, and dormant sites weekly.
+
+---
+
+## 👥 Who Can Use It?
+
+| User Type | Access Level |
+|-----------|--------------|
+| 🔴 **Root** | All accounts, all settings, full control |
+| 🟡 **Resellers** | Only their own accounts and settings |
+
+Each user gets **separate configuration** — resellers can't peek at root's settings, and vice versa.
+
+> [!NOTE]
+> Resellers can see and use destinations but cannot create them. Root must configure destinations in WHM Backup Configuration first.
+
+---
+
+## ⚙️ Settings You Can Configure
+
+| Setting | Description |
+|---------|-------------|
+| 📧 **Email** | Where to send notification emails |
+| 💬 **Slack Webhook** | Post alerts to your team's Slack channel |
+| 🔔 **Notify On** | Start, success, and/or failure events |
+| 🗄️ **Database Method** | mysqldump, mariadb-backup, or skip databases entirely |
+| 📦 **Compression** | Compress backups or leave them raw |
+| ⏭️ **Skip Options** | 22+ components you can exclude from backups |
+
+---
+
+## 📁 Where's Everything Stored?
+
+```
+/usr/local/cpanel/3rdparty/backbork/
+├── 👤 users/        → Per-user config files
+├── 📅 schedules/    → Scheduled backup jobs
+├── 📋 queue/        → Jobs waiting to run
+├── 🏃 running/      → Currently active jobs
+├── ✅ completed/    → Finished job records
+└── 📝 logs/         → Operation audit logs
+```
+
+> [!IMPORTANT]
+> **Your actual backup files** go to whatever destination you've configured (local path or SFTP server). The plugin directory only stores job metadata and logs — not your backups themselves.
+
+---
+
+## 📋 Requirements
+
+| What | Minimum | Notes |
+|------|---------|-------|
+| WHM | 130+ | Needs modern WHMAPI1 |
+| PHP | 8.2+ | Uses WHM's bundled PHP |
+| Access | Root SSH | For installation only |
+| Destination | SFTP or Local | Must be configured in WHM first |
+| Cron | Required | Auto-configured by the installer |
+
+> [!CAUTION]
+> **Backup destinations must be configured in WHM before using BackBork.** The plugin reads existing destinations — it can't create them for you.
+
+> [!NOTE]
+> **Cron is essential** for scheduled backups and queue processing. The installer sets it up automatically, and the plugin monitors its health. See [CRON.md](CRON.md) for the nitty-gritty.
+
+---
+
+## 🔌 API Access
+
+BackBork exposes a full JSON API for automation and scripting. Every action you can do in the GUI, you can do via API.
+
+```bash
+# Example: List accounts
+curl -k -H "Authorization: whm root:YOUR_API_TOKEN" \
+  "https://server:2087/cgi/backbork/api/router.php?action=get_accounts"
+
+# Example: Queue a backup
+curl -k -X POST \
+  -H "Authorization: whm root:YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accounts":["myuser"],"destination":"SFTP_Backup","schedule":"once"}' \
+  "https://server:2087/cgi/backbork/api/router.php?action=queue_backup"
+```
+
+| Endpoint | What It Does |
+|----------|--------------|
+| `get_accounts` | List accessible accounts |
+| `get_destinations` | List configured backup destinations |
+| `queue_backup` | Add accounts to backup queue |
+| `create_schedule` | Create automated backup schedule |
+| `get_queue` | View queue, running jobs, and schedules |
+| `get_logs` | Retrieve audit logs |
+
+> [!TIP]
+> See [API.md](API.md) for the complete endpoint reference, request/response formats, and authentication details.
+
+---
+
+## 🗑️ Uninstall
+
+```bash
+./uninstall.sh
+```
+
+Removes plugin files, cron entries, and WHM registration. **Your backups stay right where they are** — we don't touch those.
+
+---
+
+## 📚 More Documentation
+
+| Resource | Description |
+|----------|-------------|
+| 🔧 [TECHNICAL.md](TECHNICAL.md) | Architecture, file structure, and internals |
+| 🔌 [API.md](API.md) | Full API reference for automation |
+| ⏰ [CRON.md](CRON.md) | Cron configuration and troubleshooting |
+| 🐛 [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/issues) | Report bugs or request features |
+| 📜 [LICENSE](LICENSE) | GPL v3 |
+
+---
+
+## ☁️ Need Off-Site Storage?
+
+Got BackBork sorted but nowhere to send your backups? **[Velocity Host](https://velocityhost.com.au)** runs **KISS Cloud Storage** — purpose-built for blokes like us who want simple, secure, Aussie-hosted backup storage without the Big Tech nonsense.
+
+| Why KISS Cloud? | |
+|-----------------|---|
+| 🇦🇺 **Data Sovereignty** | Your data stays in Australia, governed by local laws |
+| 🔒 **No Snooping** | We don't scan your files to train AI or flog you ads |
+| 💰 **Simple Pricing** | Per-GB, all-inclusive — no PhD required to read your invoice |
+| 🛡️ **ZFS Integrity** | Monthly corruption checks on proper enterprise storage |
+
+**BackBork KISS + KISS Cloud Storage** — a match made in heaven for your DR strategy.
+
+👉 **[Check out KISS Cloud Storage](https://velocityhost.com.au/business-it-solutions/open-source-cloud-backup/)**
+
+---
+
+<div align="center">
+
+**Made with 💜 by [The Network Crew Pty Ltd](https://tnc.works) & [Velocity Host Pty Ltd](https://velocityhost.com.au)**
+
+</div>
+
+</div>
