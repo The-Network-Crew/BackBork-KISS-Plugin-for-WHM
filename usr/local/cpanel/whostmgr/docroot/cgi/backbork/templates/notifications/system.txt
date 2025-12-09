@@ -1,0 +1,10 @@
+{{EMOJI}} {{TITLE}}
+
+Server: {{HOSTNAME}}
+Time: {{TIMESTAMP}}
+
+{{MESSAGE}}
+{{DETAILS}}
+---
+Open-source Disaster Recovery
+v{{VERSION}} • https://backbork.com

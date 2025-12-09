@@ -1,0 +1,29 @@
+{
+    "_comment": "BackBork KISS - Deployment Configuration Template",
+    "_docs": "https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM",
+    
+    "notify_email": "",
+    "slack_webhook": "",
+    
+    "notify_backup_success": true,
+    "notify_backup_failure": true,
+    "notify_backup_start": false,
+    "notify_restore_success": true,
+    "notify_restore_failure": true,
+    "notify_restore_start": false,
+    
+    "debug_mode": false,
+    "schedules_locked": false,
+    "notify_cron_errors": true,
+    "notify_queue_failure": true,
+    "notify_pruning": true,
+    
+    "create_schedule": true,
+    "schedule_name": "Daily Backup - All Accounts",
+    "schedule_frequency": "daily",
+    "schedule_hour": 20,
+    "schedule_day_of_week": 1,
+    "schedule_day_of_month": 1,
+    "schedule_destination": "native_remote",
+    "schedule_retention": 30
+}

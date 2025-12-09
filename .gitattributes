@@ -1,0 +1,10 @@
+# BackBork KISS - Git Attributes
+# Ensures scripts are executable when cloned
+
+# Shell scripts should be executable
+install.sh    eol=lf
+uninstall.sh  eol=lf
+
+# Note: Git stores execute permission in the index. To fix permissions:
+# git update-index --chmod=+x install.sh uninstall.sh
+# git commit -m "Fix script permissions"

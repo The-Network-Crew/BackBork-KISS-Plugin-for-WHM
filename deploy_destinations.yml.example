@@ -1,0 +1,64 @@
+# BackBork KISS - Per-Server SFTP Destination Configuration
+#
+# This file defines SFTP backup destinations for each server.
+# The playbook looks up each server by inventory_hostname or ansible_host.
+#
+# Usage:
+#   1. Copy this template to deploy_destinations.yml
+#   2. Add your servers and their SFTP credentials
+#   3. Run: ansible-playbook -i inventory deploy.yml
+#
+# The playbook will:
+#   1. Create the SFTP destination in WHM via backup_destination_add API
+#   2. Optionally validate the connection
+#   3. Use the destination ID for the backup schedule
+#
+# SECURITY NOTE: This file contains credentials - do not commit to version control!
+#                Consider using ansible-vault to encrypt this file.
+#                Example: ansible-vault encrypt deploy_destinations.yml
+#
+# Copyright (c) The Network Crew Pty Ltd & Velocity Host Pty Ltd
+# https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM
+
+servers:
+  # Example: Server looked up by inventory hostname
+  # server1.example.com:
+  #   name: "BackBork Remote"       # Destination name shown in WHM (default: BackBork Remote)
+  #   host: "backup.example.com"    # SFTP server hostname (required)
+  #   port: 22                      # SFTP port (default: 22)
+  #   username: "backups"           # SFTP username (required)
+  #   password: "secure_password"   # SFTP password (required for authtype=password)
+  #   path: "/backups/server1"      # Remote path for backups (default: /backups)
+  #   timeout: 120                  # Connection timeout in seconds (default: 120)
+  #   validate: true                # Whether to validate connection after creation (default: true)
+  
+  # Example configuration - replace with your actual servers
+  # --------------------------------------------------------
+  
+  # web1.example.com:
+  #   name: "BackBork Remote - Web1"
+  #   host: "backups.example.com"
+  #   port: 22
+  #   username: "web1_backup"
+  #   password: "CHANGE_ME"
+  #   path: "/backups/web1"
+  #   timeout: 120
+  #   validate: true
+  
+  # web2.example.com:
+  #   name: "BackBork Remote - Web2"
+  #   host: "backups.example.com"
+  #   port: 22
+  #   username: "web2_backup"
+  #   password: "CHANGE_ME"
+  #   path: "/backups/web2"
+  #   timeout: 120
+  #   validate: true
+  
+  # Alternative: Use IP addresses if that's how your inventory is defined
+  # 192.168.1.10:
+  #   name: "BackBork Remote"
+  #   host: "backups.example.com"
+  #   username: "backup_user"
+  #   password: "CHANGE_ME"
+  #   path: "/backups/server10"

@@ -1,0 +1,297 @@
+---
+# BackBork KISS - Ansible Deployment Playbook
+#
+# Downloads, installs, and configures BackBork KISS on cPanel/WHM servers.
+# Configuration is loaded from deploy.json in the same directory.
+# Per-server SFTP credentials are loaded from deploy_destinations.yml
+#
+# Usage:
+#   ansible-playbook -i inventory deploy.yml
+#   ansible-playbook -i "server1.example.com," deploy.yml  # Single server
+#
+# Requirements:
+#   - Ansible 2.9+
+#   - Target servers must have cPanel/WHM installed
+#   - SSH access as root or with become privileges
+#
+# Files:
+#   - deploy.json: Global configuration (notifications, schedule settings)
+#   - deploy_destinations.yml: Per-server SFTP destination credentials
+#
+# Copyright (c) The Network Crew Pty Ltd & Velocity Host Pty Ltd
+# https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM
+
+- name: Deploy BackBork KISS
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    backbork_repo: "https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM"
+    backbork_branch: "main"
+    backbork_temp_dir: "/tmp/backbork-install"
+    backbork_config_dir: "/usr/local/cpanel/3rdparty/backbork"
+    backbork_schedules_dir: "/usr/local/cpanel/3rdparty/backbork/schedules"
+    
+    # Load config from deploy.json (falls back to defaults if not found)
+    deploy_config: "{{ lookup('file', 'deploy.json', errors='ignore') | default('{}') | from_json }}"
+    
+    # Load per-server destinations from deploy_destinations.yml
+    deploy_destinations: "{{ lookup('file', 'deploy_destinations.yml', errors='ignore') | default('{}') | from_yaml }}"
+
+  tasks:
+    # ========================================================================
+    # PRE-FLIGHT CHECKS
+    # ========================================================================
+    
+    - name: Verify cPanel/WHM is installed
+      stat:
+        path: /usr/local/cpanel
+      register: cpanel_check
+      failed_when: not cpanel_check.stat.exists
+      
+    - name: Display target server
+      debug:
+        msg: "Deploying BackBork KISS to {{ inventory_hostname }}"
+    
+    - name: Check for server-specific SFTP destination config
+      set_fact:
+        server_sftp: "{{ deploy_destinations.servers[inventory_hostname] | default(deploy_destinations.servers[ansible_host] | default({})) }}"
+      when: deploy_destinations.servers is defined
+
+    # ========================================================================
+    # DOWNLOAD AND INSTALL
+    # ========================================================================
+    
+    - name: Clean up any previous install attempt
+      file:
+        path: "{{ backbork_temp_dir }}"
+        state: absent
+        
+    - name: Create temp directory
+      file:
+        path: "{{ backbork_temp_dir }}"
+        state: directory
+        mode: '0755'
+        
+    - name: Download BackBork from GitHub
+      get_url:
+        url: "{{ backbork_repo }}/archive/refs/heads/{{ backbork_branch }}.tar.gz"
+        dest: "{{ backbork_temp_dir }}/backbork.tar.gz"
+        mode: '0644'
+        
+    - name: Extract archive
+      unarchive:
+        src: "{{ backbork_temp_dir }}/backbork.tar.gz"
+        dest: "{{ backbork_temp_dir }}"
+        remote_src: yes
+        
+    - name: Find extracted directory
+      find:
+        paths: "{{ backbork_temp_dir }}"
+        patterns: "BackBork-*"
+        file_type: directory
+      register: extracted_dir
+      
+    - name: Run installer
+      command: bash install.sh
+      args:
+        chdir: "{{ extracted_dir.files[0].path }}"
+      register: install_result
+      
+    - name: Display installer output
+      debug:
+        var: install_result.stdout_lines
+
+    # ========================================================================
+    # CREATE SFTP BACKUP DESTINATION (via WHM API)
+    # ========================================================================
+    
+    - name: Check if SFTP destination already exists
+      command: >
+        whmapi1 --output=json backup_destination_list
+      register: dest_list_result
+      changed_when: false
+      when: server_sftp is defined and server_sftp.host is defined
+      
+    - name: Parse existing destinations
+      set_fact:
+        existing_destinations: "{{ (dest_list_result.stdout | from_json).data.destinations | default([]) | map(attribute='name') | list }}"
+      when: server_sftp is defined and server_sftp.host is defined and dest_list_result is defined
+      
+    - name: Create SFTP backup destination via WHM API
+      command: >
+        whmapi1 --output=json backup_destination_add
+        name='{{ server_sftp.name | default("BackBork Remote") }}'
+        type='SFTP'
+        disabled='0'
+        host='{{ server_sftp.host }}'
+        port='{{ server_sftp.port | default(22) }}'
+        username='{{ server_sftp.username }}'
+        password='{{ server_sftp.password }}'
+        authtype='password'
+        path='{{ server_sftp.path | default("/backups") }}'
+        timeout='{{ server_sftp.timeout | default(120) }}'
+      register: dest_add_result
+      when: >
+        server_sftp is defined and 
+        server_sftp.host is defined and
+        (server_sftp.name | default("BackBork Remote")) not in (existing_destinations | default([]))
+      no_log: true  # Hide password from logs
+      
+    - name: Display destination creation result
+      debug:
+        msg: "{{ 'SFTP destination created: ' + (server_sftp.name | default('BackBork Remote')) if dest_add_result.changed | default(false) else 'SFTP destination already exists or not configured' }}"
+      when: server_sftp is defined and server_sftp.host is defined
+      
+    - name: Get SFTP destination ID for schedule
+      set_fact:
+        sftp_destination_id: "{{ ((dest_add_result.stdout | default('{}') | from_json).data.id | default('')) if dest_add_result.changed | default(false) else '' }}"
+      when: server_sftp is defined and server_sftp.host is defined
+      
+    - name: Validate SFTP destination (optional)
+      command: >
+        whmapi1 --output=json backup_destination_validate
+        id='{{ sftp_destination_id }}'
+      register: dest_validate_result
+      when: >
+        server_sftp is defined and 
+        server_sftp.host is defined and
+        sftp_destination_id | default('') != '' and
+        (server_sftp.validate | default(true))
+      failed_when: false  # Don't fail deployment if validation fails
+      
+    - name: Display validation result
+      debug:
+        msg: "{{ 'SFTP destination validation: ' + ((dest_validate_result.stdout | from_json).metadata.reason | default('OK')) }}"
+      when: dest_validate_result is defined and dest_validate_result.stdout is defined
+        
+    # ========================================================================
+    # CONFIGURE ROOT USER SETTINGS
+    # ========================================================================
+    
+    - name: Ensure config directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+      loop:
+        - "{{ backbork_config_dir }}"
+        - "{{ backbork_config_dir }}/users"
+        - "{{ backbork_schedules_dir }}"
+        
+    - name: Configure root user settings
+      copy:
+        content: |
+          {
+            "notify_email": "{{ deploy_config.notify_email | default('') }}",
+            "slack_webhook": "{{ deploy_config.slack_webhook | default('') }}",
+            "notify_backup_success": {{ deploy_config.notify_backup_success | default(true) | lower }},
+            "notify_backup_failure": {{ deploy_config.notify_backup_failure | default(true) | lower }},
+            "notify_backup_start": {{ deploy_config.notify_backup_start | default(false) | lower }},
+            "notify_restore_success": {{ deploy_config.notify_restore_success | default(true) | lower }},
+            "notify_restore_failure": {{ deploy_config.notify_restore_failure | default(true) | lower }},
+            "notify_restore_start": {{ deploy_config.notify_restore_start | default(false) | lower }},
+            "updated_at": "{{ ansible_date_time.iso8601 }}",
+            "deployed_by": "ansible"
+          }
+        dest: "{{ backbork_config_dir }}/users/root.json"
+        mode: '0600'
+        owner: root
+        group: root
+        
+    - name: Configure global settings
+      copy:
+        content: |
+          {
+            "debug_mode": {{ deploy_config.debug_mode | default(false) | lower }},
+            "schedules_locked": {{ deploy_config.schedules_locked | default(false) | lower }},
+            "notify_cron_errors": {{ deploy_config.notify_cron_errors | default(true) | lower }},
+            "notify_queue_failure": {{ deploy_config.notify_queue_failure | default(true) | lower }},
+            "notify_pruning": {{ deploy_config.notify_pruning | default(true) | lower }},
+            "updated_at": "{{ ansible_date_time.iso8601 }}",
+            "deployed_by": "ansible"
+          }
+        dest: "{{ backbork_config_dir }}/global.json"
+        mode: '0600'
+        owner: root
+        group: root
+        
+    # ========================================================================
+    # CREATE DEFAULT SCHEDULE (Daily at 8pm)
+    # ========================================================================
+    
+    - name: Generate schedule ID
+      set_fact:
+        schedule_id: "sched_{{ ansible_date_time.epoch }}_{{ 999999999 | random | string | truncate(8, true, '') }}"
+      when: deploy_config.create_schedule | default(true)
+    
+    - name: Determine destination for schedule
+      set_fact:
+        # Use SFTP destination ID if created, otherwise fall back to config or native_remote
+        schedule_destination: "{{ sftp_destination_id if (sftp_destination_id | default('')) != '' else (deploy_config.schedule_destination | default('native_remote')) }}"
+      when: deploy_config.create_schedule | default(true)
+      
+    - name: Calculate next run time (next occurrence of preferred hour)
+      set_fact:
+        # If current hour >= preferred hour, schedule for tomorrow
+        next_run_date: "{{ (ansible_date_time.hour | int >= (deploy_config.schedule_hour | default(20) | int)) | ternary(
+          (ansible_date_time.date | to_datetime('%Y-%m-%d') + '%1d' | strftime('%Y-%m-%d')),
+          ansible_date_time.date
+        ) }}"
+      when: deploy_config.create_schedule | default(true)
+        
+    - name: Create default backup schedule
+      copy:
+        content: |
+          {
+            "id": "{{ schedule_id }}",
+            "name": "{{ deploy_config.schedule_name | default('Daily Backup - All Accounts') }}",
+            "enabled": true,
+            "created_at": "{{ ansible_date_time.iso8601 }}",
+            "created_by": "root",
+            "deployed_by": "ansible",
+            "frequency": "{{ deploy_config.schedule_frequency | default('daily') }}",
+            "hour": {{ deploy_config.schedule_hour | default(20) }},
+            "day_of_week": {{ deploy_config.schedule_day_of_week | default(1) }},
+            "day_of_month": {{ deploy_config.schedule_day_of_month | default(1) }},
+            "accounts": ["*"],
+            "all_accounts": true,
+            "destination": "{{ schedule_destination }}",
+            "retention": {{ deploy_config.schedule_retention | default(30) }},
+            "notify_on_success": {{ deploy_config.notify_backup_success | default(true) | lower }},
+            "notify_on_failure": {{ deploy_config.notify_backup_failure | default(true) | lower }},
+            "last_run": null,
+            "last_status": null,
+            "next_run": null
+          }
+        dest: "{{ backbork_schedules_dir }}/{{ schedule_id }}.json"
+        mode: '0600'
+        owner: root
+        group: root
+      when: deploy_config.create_schedule | default(true)
+
+    # ========================================================================
+    # CLEANUP
+    # ========================================================================
+    
+    - name: Clean up temp directory
+      file:
+        path: "{{ backbork_temp_dir }}"
+        state: absent
+        
+    - name: Display completion message
+      debug:
+        msg: |
+          ✅ BackBork KISS deployed successfully to {{ inventory_hostname }}
+          
+          Configuration:
+          - Notifications: {{ 'Email (' + deploy_config.notify_email + ')' if deploy_config.notify_email | default('') else 'Not configured' }}
+          - Slack: {{ 'Configured' if deploy_config.slack_webhook | default('') else 'Not configured' }}
+          - SFTP Destination: {{ server_sftp.name | default('Not configured') if server_sftp is defined and server_sftp.host is defined else 'Not configured' }}
+          - Schedule: {{ 'Daily at ' + (deploy_config.schedule_hour | default(20) | string) + ':00' if deploy_config.create_schedule | default(true) else 'Not created' }}
+          - Destination: {{ schedule_destination | default(deploy_config.schedule_destination | default('native_remote')) }}
+          
+          Access WHM > Plugins > BackBork KISS to verify installation.
