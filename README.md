@@ -103,6 +103,17 @@ Tweak your notification settings, database backup methods, and 22+ skip options.
 
 ![BackBork Config Interface](_images/BackBork-Config.png)
 
+#### First, you need to create a Destination
+
+> [!TIP]
+> **This is done at WHM > Backup Configuration > Destinations.**
+> 
+> There is a hyperlink in BackBork KISS > Configuration that'll take you there.
+
+![WHM > Backup Configuration > Destinations](_images/WHM-Backup-Dests.png)
+
+Isn't it convenient how there's a JB up-sell there, and they won't fix Backups...
+
 ---
 
 ## 📖 How to get cracking!
