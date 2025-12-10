@@ -365,6 +365,11 @@ backbork/
     └────┬────┘
          │
          ▼
+    ┌─────────┐
+    │ ✅ Verify│  Check backup file integrity
+    └────┬────┘
+         │
+         ▼
     ┌──────────────────────────┐
     │ 🔄 Restore               │
     │                          │
@@ -374,7 +379,7 @@ backbork/
          │
          ▼
     ┌─────────┐
-    │ 🧹 Clean│  Remove downloaded backup
+    │ 🧹 Clean│  Remove downloaded temp file
     └────┬────┘
          │
          ▼
@@ -382,6 +387,9 @@ backbork/
     │ 📧 Done │  Send notification
     └─────────┘
 ```
+
+> [!NOTE]
+> Downloaded backup files are automatically cleaned up after restore completes (success or failure). The cron job also runs `cleanupTempFiles(24)` to catch any orphaned files older than 24 hours.
 
 ---
 
@@ -429,6 +437,27 @@ backbork/
 ---
 
 ## 📄 File Formats
+
+### 🌐 Global Config
+
+`global.json` (root-only settings that affect all users):
+
+```json
+{
+  "schedules_locked": false,
+  "debug_mode": false,
+  "updated_at": "2024-01-15 14:30:00"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schedules_locked` | bool | Prevent resellers from managing schedules |
+| `debug_mode` | bool | Enable verbose logging to PHP error_log |
+| `updated_at` | string | Last modification time |
+
+> [!NOTE]
+> When `schedules_locked` is enabled, resellers see a lock icon and cannot create, edit, or delete schedules. Existing schedules continue to run.
 
 ### 👤 User Config
 
@@ -545,14 +574,25 @@ backbork/
   "id": "sched_abc123",
   "name": "Daily Important Accounts",
   "accounts": ["user1", "user2"],
-     "destination": "SFTP_Server",
+  "all_accounts": false,
+  "destination": "SFTP_Server",
   "frequency": "daily",
   "hour": 2,
   "retention_days": 30,
   "enabled": true,
+  "owner": "root",
   "last_run": "2024-01-16T02:00:00Z",
   "next_run": "2024-01-17T02:00:00Z"
 }
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `all_accounts` | bool | When `true`, dynamically includes all accounts accessible to the owner at runtime |
+| `owner` | string | Username who created the schedule (for ACL filtering) |
+
+> [!TIP]
+> Use `all_accounts: true` for schedules that should automatically include newly created accounts without manual updates.
 ```
 
 ### 📋 Job
@@ -592,6 +632,8 @@ All require WHM authentication.
 | `?action=get_destinations` | GET | List destinations |
 | `?action=get_config` | GET | Get user config |
 | `?action=save_config` | POST | Save user config |
+| `?action=get_global_config` | GET | Get global config (root only) |
+| `?action=save_global_config` | POST | Save global config (root only) |
 | `?action=create_backup` | POST | Start backup |
 | `?action=queue_backup` | POST | Add a backup job to the queue (immediate or scheduled) |
 | `?action=remove_from_queue` | POST | Remove a specific queued job or schedule |

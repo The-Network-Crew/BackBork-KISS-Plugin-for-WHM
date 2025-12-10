@@ -9,7 +9,7 @@
 
 ---
 
-## 🤔 What Is This?
+## 🤔 What is it?
 
 BackBork wraps WHM's existing backup tools into a **clean interface**. No reinventing the wheel — just a nicer way to manage disaster recovery backups.
 
@@ -19,13 +19,15 @@ We've built this for sysadmins who want reliable backups without wading through 
 
 ---
 
-## ✨ Features At A Glance
+## ✨ Features at a Glance
 
 | Feature | What It Does |
 |---------|--------------|
 | 📦 **Backup Accounts** | Full account backups to local or SFTP |
 | 🔄 **Restore Accounts** | Full restore or cherry-pick specific parts |
 | ⏰ **Schedule Backups** | Hourly, daily, weekly, or monthly automation |
+| 🌐 **All Accounts Mode** | Dynamic schedules that auto-include new accounts |
+| 🔒 **Schedule Lock** | Root can prevent resellers from managing schedules |
 | 📧 **Notifications** | Email and Slack alerts when things happen |
 | 🔥 **Hot DB Backups** | MariaDB-backup support (no table locks!) |
 | 👥 **Multi-User** | Root and resellers, each with their own settings |
@@ -103,7 +105,7 @@ Tweak your notification settings, database backup methods, and 22+ skip options.
 
 ---
 
-## 📖 How To Use
+## 📖 How to get cracking!
 
 ### 🔹 Create a Backup
 
@@ -124,14 +126,18 @@ Tweak your notification settings, database backup methods, and 22+ skip options.
 1. Go to the **Schedule** tab
 2. Click **Add Schedule**
 3. Select accounts, destination, and frequency
+   - Or enable **All Accounts** to dynamically include all accessible accounts
 4. Save — the cron job handles the rest automatically
 
 > [!TIP]
 > Use different schedules for different account tiers. Back up your VIP customers hourly, regular accounts daily, and dormant sites weekly.
 
+> [!TIP]
+> Enable **All Accounts** for a schedule that automatically includes newly created accounts without manual updates.
+
 ---
 
-## 👥 Who Can Use It?
+## 👥 Who can use BackBork KISS?
 
 | User Type | Access Level |
 |-----------|--------------|
@@ -143,12 +149,17 @@ Each user gets **separate configuration** — resellers can't peek at root's set
 > [!NOTE]
 > Resellers can see and use destinations but cannot create them. Root must configure destinations in WHM Backup Configuration first.
 
+> [!NOTE]
+> Root can enable **Schedule Lock** in Global Settings to prevent resellers from creating, editing, or deleting schedules. Existing schedules continue to run.
+
 ---
 
-## ⚙️ Settings You Can Configure
+## ⚙️ Available Config Options
 
 | Setting | Description |
 |---------|-------------|
+| 🔒 **Schedule Lock** | (Root only) Prevent resellers from managing schedules |
+| 🐛 **Debug Mode** | (Root only) Verbose logging to PHP error_log |
 | 📧 **Email** | Where to send notification emails |
 | 💬 **Slack Webhook** | Post alerts to your team's Slack channel |
 | 🔔 **Notify On** | Start, success, and/or failure events |
@@ -175,7 +186,7 @@ Each user gets **separate configuration** — resellers can't peek at root's set
 
 ---
 
-## 📋 Requirements
+## 📋 System Requirements
 
 | What | Minimum | Notes |
 |------|---------|-------|
@@ -193,7 +204,7 @@ Each user gets **separate configuration** — resellers can't peek at root's set
 
 ---
 
-## 🔌 API Access
+## 🔌 JSON API Access!
 
 BackBork exposes a full JSON API for automation and scripting. Every action you can do in the GUI, you can do via API.
 
@@ -224,7 +235,7 @@ curl -k -X POST \
 
 ---
 
-## 🗑️ Uninstall
+## 🗑️ Uninstall (sad panda)
 
 ```bash
 ./uninstall.sh

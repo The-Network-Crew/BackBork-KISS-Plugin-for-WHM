@@ -482,6 +482,7 @@ Creates a new backup schedule.
 {
   "name": "Daily Important Accounts",
   "accounts": ["user1", "user2"],
+  "all_accounts": false,
   "destination": "SFTP_BackupServer",
   "frequency": "daily",
   "hour": 2,
@@ -489,6 +490,24 @@ Creates a new backup schedule.
   "retention_days": 30
 }
 ```
+
+**Request (All Accounts Mode):**
+```json
+{
+  "name": "Daily All Accounts",
+  "accounts": [],
+  "all_accounts": true,
+  "destination": "SFTP_BackupServer",
+  "frequency": "daily",
+  "hour": 2,
+  "minute": 0,
+  "retention_days": 30
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `all_accounts` | bool | When `true`, dynamically includes all accounts accessible to the user at runtime |
 
 **Frequency Options:**
 
@@ -652,6 +671,57 @@ Saves user configuration. You can send partial updates — only the fields you i
 
 > [!NOTE]
 > Each user (root, reseller) has their own separate configuration.
+
+---
+
+### Global Configuration (Root Only)
+
+#### `GET ?action=get_global_config`
+
+Gets the global configuration. **Root only.**
+
+**Response:**
+```json
+{
+  "success": true,
+  "config": {
+    "schedules_locked": false,
+    "debug_mode": false,
+    "updated_at": "2024-01-15 14:30:00"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schedules_locked` | bool | When `true`, resellers cannot create, edit, or delete schedules |
+| `debug_mode` | bool | When `true`, verbose debug logging is enabled |
+
+> [!WARNING]
+> Non-root users will receive an error if they attempt to access this endpoint.
+
+#### `POST ?action=save_global_config`
+
+Saves global configuration. **Root only.**
+
+**Request:**
+```json
+{
+  "schedules_locked": true,
+  "debug_mode": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Global configuration saved"
+}
+```
+
+> [!TIP]
+> Enable `schedules_locked` to prevent resellers from creating or modifying backup schedules. Existing schedules will continue to run.
 
 ---
 
