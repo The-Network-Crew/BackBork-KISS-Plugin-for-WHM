@@ -697,4 +697,194 @@ class BackBorkQueueProcessor {
         
         return $cleaned;
     }
+    
+    // ========================================================================
+    // BACKUP RETENTION PRUNING
+    // ========================================================================
+    
+    /**
+     * Prune old backups based on schedule retention settings.
+     * 
+     * Iterates through all schedules and enforces backup count limits.
+     * Uses COUNT-BASED retention: keeps exactly N backups per account,
+     * deletes the oldest ones that exceed the retention count.
+     * 
+     * Runs hourly to ensure backup counts stay within limits.
+     * Retention value of 0 means unlimited (no pruning).
+     * 
+     * @return array Results with per-schedule pruning counts
+     */
+    public function pruneOldBackups() {
+        $schedulesDir = BackBorkQueue::SCHEDULES_DIR;
+        $scheduleFiles = glob($schedulesDir . '/*.json');
+        
+        if (empty($scheduleFiles)) {
+            return ['success' => true, 'message' => 'No schedules to prune', 'pruned' => 0];
+        }
+        
+        $results = [];
+        $totalPruned = 0;
+        $parser = new BackBorkDestinationsParser();
+        $validator = new BackBorkDestinationsValidator();
+        
+        // Process each schedule
+        foreach ($scheduleFiles as $file) {
+            $scheduleId = basename($file, '.json');
+            $schedule = json_decode(file_get_contents($file), true);
+            
+            if (!$schedule) {
+                continue;
+            }
+            
+            // Get retention count (0 = unlimited, skip pruning)
+            $retentionCount = (int)($schedule['retention'] ?? 30);
+            if ($retentionCount <= 0) {
+                $results[$scheduleId] = ['skipped' => true, 'reason' => 'unlimited retention'];
+                continue;
+            }
+            
+            // Get destination for this schedule
+            $destinationId = $schedule['destination'] ?? 'local';
+            $destination = $parser->getDestinationById($destinationId);
+            
+            if (!$destination) {
+                $results[$scheduleId] = ['skipped' => true, 'reason' => 'invalid destination'];
+                continue;
+            }
+            
+            // Get accounts in this schedule (may be dynamic for all_accounts)
+            $accounts = $schedule['accounts'] ?? [];
+            
+            // Handle "all accounts" mode - get the actual account list
+            if (!empty($schedule['all_accounts']) || (is_array($accounts) && in_array('*', $accounts))) {
+                $user = $schedule['user'] ?? 'root';
+                $acl = new BackBorkACL();
+                $accountsEngine = new BackBorkWhmApiAccounts();
+                $isScheduleOwnerRoot = ($user === 'root');
+                $accessibleAccounts = $accountsEngine->getAccessibleAccounts($user, $isScheduleOwnerRoot);
+                $accounts = array_column($accessibleAccounts, 'user');
+            }
+            
+            // Prune backups for each account in this schedule
+            $schedulePruned = 0;
+            foreach ($accounts as $account) {
+                $pruned = $this->pruneAccountBackups($account, $destination, $retentionCount, $validator);
+                $schedulePruned += $pruned;
+            }
+            
+            $results[$scheduleId] = ['pruned' => $schedulePruned, 'retention_count' => $retentionCount];
+            $totalPruned += $schedulePruned;
+        }
+        
+        // Log pruning activity if anything was deleted
+        if ($totalPruned > 0) {
+            BackBorkConfig::debugLog('pruneOldBackups: Pruned ' . $totalPruned . ' old backup(s)');
+            error_log('[BackBork] Retention pruning: Deleted ' . $totalPruned . ' old backup(s)');
+        }
+        
+        return [
+            'success' => true,
+            'message' => $totalPruned > 0 ? "Pruned {$totalPruned} old backup(s)" : 'No backups needed pruning',
+            'pruned' => $totalPruned,
+            'details' => $results
+        ];
+    }
+    
+    /**
+     * Prune old backups for a specific account at a destination.
+     * 
+     * COUNT-BASED RETENTION: Keeps exactly $retentionCount backups,
+     * deletes the oldest ones that exceed this limit.
+     * 
+     * If backup count <= retention count, nothing is deleted.
+     * This is inherently safe during backup failures.
+     * 
+     * @param string $account Account username
+     * @param array $destination Destination configuration
+     * @param int $retentionCount Number of backups to keep
+     * @param BackBorkDestinationsValidator $validator Validator instance for transport
+     * @return int Number of backups pruned
+     */
+    private function pruneAccountBackups($account, $destination, $retentionCount, $validator) {
+        $pruned = 0;
+        
+        // Get appropriate transport for this destination type
+        $transport = $validator->getTransportForDestination($destination);
+        
+        // List backups at the account's subdirectory
+        $accountPath = $account . '/';
+        $files = $transport->listFiles($accountPath, $destination);
+        
+        if (empty($files)) {
+            return 0;
+        }
+        
+        // Collect files with resolved timestamps for sorting
+        $backups = [];
+        foreach ($files as $fileInfo) {
+            $filename = $fileInfo['file'] ?? '';
+            $mtime = $fileInfo['mtime'] ?? 0;
+            
+            // Try to extract timestamp from filename if mtime not available
+            if ($mtime <= 0) {
+                if (preg_match('/_([0-9]{8}_[0-9]{6})\.tar\.gz$/', $filename, $matches)) {
+                    $dateStr = $matches[1];
+                    $mtime = strtotime(
+                        substr($dateStr, 0, 4) . '-' .  // Year
+                        substr($dateStr, 4, 2) . '-' .  // Month
+                        substr($dateStr, 6, 2) . ' ' .  // Day
+                        substr($dateStr, 9, 2) . ':' .  // Hour
+                        substr($dateStr, 11, 2) . ':' . // Minute
+                        substr($dateStr, 13, 2)         // Second
+                    );
+                }
+            }
+            
+            // Only include files with determinable age
+            if ($mtime > 0) {
+                $backups[] = [
+                    'file' => $filename,
+                    'mtime' => $mtime
+                ];
+            }
+        }
+        
+        $totalBackups = count($backups);
+        
+        // If we have retention count or fewer backups, nothing to prune
+        if ($totalBackups <= $retentionCount) {
+            return 0;
+        }
+        
+        // Sort by mtime descending (newest first)
+        usort($backups, function($a, $b) {
+            return $b['mtime'] - $a['mtime'];
+        });
+        
+        // Calculate how many to delete (excess beyond retention count)
+        $toDelete = $totalBackups - $retentionCount;
+        
+        // Get the oldest backups (at the end of the sorted array)
+        $backupsToDelete = array_slice($backups, -$toDelete);
+        
+        BackBorkConfig::debugLog('pruneAccountBackups: ' . $account . ' has ' . $totalBackups . 
+                                ' backups, retention is ' . $retentionCount . ', deleting ' . $toDelete);
+        
+        // Delete the oldest backups
+        foreach ($backupsToDelete as $backup) {
+            $filename = $backup['file'];
+            $remotePath = $accountPath . $filename;
+            $deleteResult = $transport->delete($remotePath, $destination);
+            
+            if ($deleteResult['success']) {
+                $pruned++;
+                BackBorkConfig::debugLog('pruneAccountBackups: Deleted ' . $filename . 
+                                        ' (age: ' . round((time() - $backup['mtime']) / 86400) . ' days)');
+            } else {
+                error_log('[BackBork] Failed to prune backup: ' . $filename . ' - ' . ($deleteResult['message'] ?? 'Unknown error'));
+            }
+        }
+        
+        return $pruned;
+    }
 }

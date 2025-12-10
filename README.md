@@ -155,7 +155,7 @@ Isn't it convenient how there's a JB up-sell there, and they won't fix Backups..
 | 🔴 **Root** | All accounts, all settings, full control |
 | 🟡 **Resellers** | Only their own accounts and settings |
 
-Each user gets **separate configuration** — resellers can't peek at root's settings, and vice versa.
+Each user gets **separate configuration** — resellers can't peek at root's settings, or another reseller.
 
 > [!NOTE]
 > Resellers can see and use destinations but cannot create them. Root must configure destinations in WHM Backup Configuration first.

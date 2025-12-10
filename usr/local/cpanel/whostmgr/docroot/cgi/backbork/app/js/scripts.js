@@ -458,7 +458,7 @@
                         '<td>' + accountsDisplay + '</td>' +
                         '<td>' + (schedule.destination_name || schedule.destination) + '</td>' +
                         '<td>' + schedule.schedule + '</td>' +
-                        '<td>' + schedule.retention + ' days</td>' +
+                        '<td>' + (schedule.retention == 0 ? '∞' : schedule.retention) + '</td>' +
                         '<td>' + schedule.next_run + '</td>';
                     
                     // Add owner column for root

@@ -66,8 +66,8 @@ $scheduleIsRoot = $scheduleAcl->isRoot();     // Check if current user is root
 
         <div class="form-row">
             <div class="form-group">
-                <label for="schedule-retention">Retention Period (days)</label>
-                <input type="number" id="schedule-retention" value="30" min="1" max="365">
+                <label for="schedule-retention">Retention (backups to keep)</label>
+                <input type="number" id="schedule-retention" value="30" min="0" max="365" title="0 = unlimited">
             </div>
             <div class="form-group">
                 <label for="schedule-time">Preferred Time (for daily)</label>

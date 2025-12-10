@@ -84,9 +84,45 @@ EOF
 3. 🏃 Processes pending queue items
 4. 📊 Updates job status
 5. 📧 Sends notifications on completion
-6. 🔍 Performs self-health check
+6. 🗑️ **Prunes old backups** based on schedule retention settings
+7. 🔍 Performs self-health check
 
-### 2️⃣ Daily Cleanup
+### 2️⃣ Retention Pruning (Hourly)
+
+> [!IMPORTANT]
+> **New in v1.2.8:** BackBork now automatically prunes old backups based on schedule retention settings.
+
+Retention pruning runs **every hour** as part of the main cron job to ensure backup counts stay within limits, even with frequent schedules.
+
+**How It Works:**
+
+| Aspect | Details |
+|--------|---------|
+| **Trigger** | Runs hourly with main cron |
+| **Scope** | Per-schedule, per-account |
+| **Retention = 0** | Unlimited (no pruning) |
+| **Default** | 30 backups |
+| **Method** | Count-based (keeps N newest backups) |
+
+**Pruning Logic:**
+
+1. 📋 Iterates through all configured schedules
+2. 🔍 Reads each schedule's `retention` setting (backup count)
+3. 📂 Lists backups at the destination for each account
+4. 🗓️ Sorts backups by age (newest first)
+5. 📊 Compares count: if backups ≤ retention, **nothing is deleted**
+6. 🗑️ If backups > retention, deletes the oldest excess backups
+
+> [!NOTE]
+> **Inherently Safe:** Count-based retention means pruning only occurs when you have MORE backups than the retention limit. If backups have been failing, no new backups exist to push older ones out — so nothing gets deleted.
+
+**Example:**
+- Schedule has `retention: 7` (keep 7 backups)
+- Account has 10 backups → deletes the 3 oldest
+- Account has 5 backups → nothing deleted (5 ≤ 7)
+- Account has 1 backup (from failed runs) → nothing deleted (1 ≤ 7)
+
+### 3️⃣ Daily Cleanup
 
 ```cron
 0 3 * * * root php .../cron/handler.php cleanup

@@ -116,6 +116,15 @@ error_log('[BackBork] Queue stats - Total: ' . $stats['total'] .
           ', Failed: ' . $stats['failed']);
 
 // ============================================================================
+// RETENTION PRUNING - Delete backups older than schedule retention settings
+// ============================================================================
+// Runs hourly to honour retention policies even with frequent schedules
+$pruneResults = $processor->pruneOldBackups();
+if ($pruneResults['pruned'] > 0) {
+    error_log('[BackBork] Retention pruning completed: ' . $pruneResults['message']);
+}
+
+// ============================================================================
 // CLEANUP - Remove old temporary files from retrieval operations
 // ============================================================================
 $retrieval = new BackBorkRetrieval();

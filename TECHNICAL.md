@@ -527,7 +527,7 @@ backbork/
 | `temp_directory` | string | Temp storage for backups before upload |
 | `exclude_paths` | string | Comma-separated paths to exclude |
 | **Defaults** |||
-| `default_retention` | int | Days to keep backups (schedules) |
+| `default_retention` | int | Number of backups to keep (0 = unlimited) |
 | `default_schedule` | string | Default frequency for new schedules |
 | **Database** |||
 | `mysql_version` | string | Target MySQL version for compatibility |
@@ -589,10 +589,14 @@ backbork/
 | Field | Type | Description |
 |-------|------|-------------|
 | `all_accounts` | bool | When `true`, dynamically includes all accounts accessible to the owner at runtime |
+| `retention_days` | int | Number of backups to keep per account (0 = unlimited) |
 | `owner` | string | Username who created the schedule (for ACL filtering) |
 
 > [!TIP]
 > Use `all_accounts: true` for schedules that should automatically include newly created accounts without manual updates.
+
+> [!NOTE]
+> **Retention Pruning (v1.2.8+):** Uses count-based retention. When an account has more backups than `retention_days`, the oldest excess backups are deleted during the hourly cron run. Set to `0` for unlimited retention. This is inherently safe: if you have fewer backups than the limit, nothing is deleted.
 ```
 
 ### 📋 Job
