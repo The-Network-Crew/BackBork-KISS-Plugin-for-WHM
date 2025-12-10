@@ -268,7 +268,7 @@ class BackBorkBackupManager {
      * Optionally filters by account name substring.
      * 
      * @param string $destinationId Destination ID from WHM transport config
-     * @param string $user User requesting (for permission checks)
+     * @param string $user User requesting (for permission filtering)
      * @param string $account Optional account filter (partial match)
      * @return array Result with success status and list of backup files
      */
@@ -288,6 +288,19 @@ class BackBorkBackupManager {
         // List all files at destination root
         $files = $transport->listFiles('', $destination);
 
+        // Security: Get list of accounts this user can access (for filtering)
+        $acl = BackBorkBootstrap::getACL();
+        $isRoot = $acl->isRoot();
+        $accessibleAccounts = [];
+        
+        // Non-root users can only see backups for accounts they own
+        if (!$isRoot) {
+            $accessible = $acl->getAccessibleAccounts();
+            foreach ($accessible as $acc) {
+                $accessibleAccounts[] = strtolower($acc['user']);
+            }
+        }
+
         // If account filter provided, filter files by partial match on filename
         if (!empty($account)) {
             $accountLower = mb_strtolower($account);
@@ -303,13 +316,30 @@ class BackBorkBackupManager {
         }
         
         // Format results for display with human-readable sizes
+        // Also filter by user access (resellers only see their accounts' backups)
         $backups = [];
         foreach ($files as $file) {
+            $filename = $file['file'] ?? '';
+            
+            // Extract account name from backup filename (cpmove-USERNAME_...)
+            $backupAccount = null;
+            if (preg_match('/cpmove-([a-z0-9_]+)/i', $filename, $matches)) {
+                $backupAccount = strtolower($matches[1]);
+            }
+            
+            // Security: Skip backups for accounts the user doesn't own (resellers only)
+            if (!$isRoot && $backupAccount !== null) {
+                if (!in_array($backupAccount, $accessibleAccounts)) {
+                    continue;  // Skip this backup - user doesn't own this account
+                }
+            }
+            
             $backups[] = [
-                'file' => $file['file'],
+                'file' => $filename,
                 'size' => $this->formatSize($file['size'] ?? 0),
                 'date' => $file['date'] ?? 'Unknown',
-                'location' => 'remote'
+                'location' => 'remote',
+                'account' => $backupAccount
             ];
         }
         
