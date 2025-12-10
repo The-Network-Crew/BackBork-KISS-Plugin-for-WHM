@@ -466,10 +466,52 @@ switch ($action) {
     /**
      * Get list of available backup destinations
      * Reads from WHM's backup configuration
+     * Filters out root-only destinations for resellers
      */
     case 'get_destinations':
         $parser = new BackBorkDestinationsParser();
-        echo json_encode($parser->getAvailableDestinations());
+        echo json_encode($parser->getAvailableDestinations($isRoot));
+        break;
+    
+    /**
+     * Get destination visibility settings (root only)
+     * Returns which destinations are marked as root-only
+     */
+    case 'get_destination_visibility':
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        $rootOnlyDests = BackBorkConfig::getRootOnlyDestinations();
+        echo json_encode(['success' => true, 'root_only_destinations' => $rootOnlyDests]);
+        break;
+    
+    /**
+     * Set destination visibility (root only)
+     * Mark specific destinations as root-only (hidden from resellers)
+     */
+    case 'set_destination_visibility':
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        $data = json_decode(file_get_contents('php://input'), true);
+        $destId = isset($data['destination_id']) ? $data['destination_id'] : '';
+        $rootOnly = isset($data['root_only']) ? (bool)$data['root_only'] : false;
+        
+        if (empty($destId)) {
+            echo json_encode(['success' => false, 'message' => 'Destination ID required']);
+            break;
+        }
+        
+        $result = BackBorkConfig::setDestinationRootOnly($destId, $rootOnly);
+        if ($result) {
+            BackBorkLog::logEvent($currentUser, 'destination_visibility_changed', [
+                'destination' => $destId,
+                'root_only' => $rootOnly
+            ], true, "Destination '$destId' visibility set to " . ($rootOnly ? 'root-only' : 'all users'), $requestor);
+        }
+        echo json_encode(['success' => $result]);
         break;
     
     // ========================================================================
@@ -509,6 +551,50 @@ switch ($action) {
             $backupManager = new BackBorkBackupManager();
             echo json_encode($backupManager->getLogs($currentUser, $isRoot, $page, $limit, $filter));
         }
+        break;
+    
+    /**
+     * Get restore log content for real-time progress viewing
+     * Used for tailing restore output during long operations
+     */
+    case 'get_restore_log':
+        $restoreId = isset($_GET['restore_id']) ? $_GET['restore_id'] : '';
+        $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+        
+        // Validate restore_id format (security)
+        if (!preg_match('/^restore_[0-9]+_[a-f0-9]+$/', $restoreId)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid restore ID']);
+            break;
+        }
+        
+        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/' . $restoreId . '.log';
+        
+        if (!file_exists($logFile)) {
+            echo json_encode(['success' => false, 'message' => 'Log file not found', 'content' => '', 'offset' => 0, 'complete' => false]);
+            break;
+        }
+        
+        // Read log content from offset
+        $content = '';
+        $fileSize = filesize($logFile);
+        
+        if ($offset < $fileSize) {
+            $handle = fopen($logFile, 'r');
+            fseek($handle, $offset);
+            $content = fread($handle, $fileSize - $offset);
+            fclose($handle);
+        }
+        
+        // Check if restore is complete (look for completion markers)
+        $isComplete = (strpos(file_get_contents($logFile), 'RESTORE COMPLETED SUCCESSFULLY') !== false) ||
+                      (strpos(file_get_contents($logFile), 'RESTORE FAILED') !== false);
+        
+        echo json_encode([
+            'success' => true,
+            'content' => $content,
+            'offset' => $fileSize,
+            'complete' => $isComplete
+        ]);
         break;
     
     // ========================================================================

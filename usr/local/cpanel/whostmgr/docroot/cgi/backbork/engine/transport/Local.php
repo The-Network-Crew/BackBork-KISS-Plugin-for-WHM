@@ -176,6 +176,19 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     }
     
     /**
+     * Check if a file exists at the destination.
+     * 
+     * @param string $remotePath File path (relative to destination base)
+     * @param array $destination Destination configuration with 'path' key
+     * @return bool True if file exists
+     */
+    public function fileExists($remotePath, $destination) {
+        $basePath = $destination['path'] ?? '/backup';
+        $filePath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
+        return file_exists($filePath);
+    }
+    
+    /**
      * Delete a file from local destination.
      * Removes the specified backup file from storage.
      * 

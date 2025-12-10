@@ -69,6 +69,7 @@ class BackBorkRestoreManager {
     /**
      * Restore an account from a backup file.
      * Complete restore workflow: retrieve file, verify, restore, notify, log.
+     * Also handles accompanying DB backup files (from mariadb-backup/mysqlbackup).
      * 
      * @param string $backupFile Path to backup file or remote path
      * @param string $destinationId Destination ID where backup is stored
@@ -89,6 +90,7 @@ class BackBorkRestoreManager {
         }
         
         $localPath = $retrieveResult['local_path'];
+        $filesToCleanup = [$localPath];
         
         // Verify backup file integrity and format
         $verification = $this->retrieval->verifyBackupFile($localPath);
@@ -98,6 +100,19 @@ class BackBorkRestoreManager {
         
         // Extract account name from backup filename for logging/notifications
         $account = $this->extractAccountFromFilename(basename($backupFile));
+        
+        // Check for accompanying DB backup file (from mariadb-backup/mysqlbackup)
+        $dbBackupFile = $this->findDbBackupFile($backupFile, $destinationId);
+        $dbLocalPath = null;
+        
+        if ($dbBackupFile) {
+            BackBorkConfig::debugLog("Found DB backup file: {$dbBackupFile}");
+            $dbRetrieveResult = $this->retrieval->retrieveBackup($destinationId, $dbBackupFile);
+            if ($dbRetrieveResult['success']) {
+                $dbLocalPath = $dbRetrieveResult['local_path'];
+                $filesToCleanup[] = $dbLocalPath;
+            }
+        }
         
         // Send start notification if user has enabled it
         if (!empty($userConfig['notify_start'])) {
@@ -112,15 +127,40 @@ class BackBorkRestoreManager {
             );
         }
         
-        // Execute the actual restore operation
+        // ====================================================================
+        // STEP 1: Restore main backup (includes schema if hot DB was used)
+        // ====================================================================
         $result = $this->executeRestore($localPath, $options);
         
-        // Clean up downloaded temp file after restore (success or failure)
-        // Only delete if it's in our temp directory (not a local destination file)
-        if (strpos($localPath, '/home/backbork_tmp') === 0 && file_exists($localPath)) {
-            unlink($localPath);
-            BackBorkConfig::debugLog("Cleaned up temp restore file: {$localPath}");
+        if (!$result['success']) {
+            // Clean up temp files on failure
+            $this->cleanupFiles($filesToCleanup);
+            $this->logOperation($user, 'restore', [$account], false, $result['message']);
+            return $result;
         }
+        
+        // ====================================================================
+        // STEP 2: Restore DB data if hot backup file exists
+        // ====================================================================
+        if ($dbLocalPath && file_exists($dbLocalPath)) {
+            BackBorkConfig::debugLog("Restoring database data from: {$dbLocalPath}");
+            
+            $sqlRestore = new BackBorkSQLRestore();
+            $dbResult = $sqlRestore->restoreDatabases($account, $dbLocalPath, $userConfig);
+            
+            if (!$dbResult['success']) {
+                // DB restore failed but main restore succeeded - partial success
+                $result['message'] .= ' (Warning: DB data restore failed: ' . ($dbResult['message'] ?? 'Unknown') . ')';
+                $result['db_restore_failed'] = true;
+            } else {
+                $result['message'] .= ' (DB data restored)';
+            }
+        }
+        
+        // ====================================================================
+        // STEP 3: Cleanup temp files
+        // ====================================================================
+        $this->cleanupFiles($filesToCleanup);
         
         // Log the operation to centralized log
         $this->logOperation($user, 'restore', [$account], $result['success'], $result['message']);
@@ -154,6 +194,59 @@ class BackBorkRestoreManager {
     }
     
     /**
+     * Find accompanying DB backup file for a cpmove backup.
+     * Looks for db-backup-{account}_{timestamp}.tar.gz matching the main backup.
+     * 
+     * @param string $backupFile Main backup filename (cpmove-account_timestamp.tar.gz)
+     * @param string $destinationId Destination to search
+     * @return string|null DB backup filename if found, null otherwise
+     */
+    private function findDbBackupFile($backupFile, $destinationId) {
+        // Extract account and timestamp from main backup filename
+        // Format: cpmove-{account}_{timestamp}.tar.gz
+        if (!preg_match('/cpmove-([^_]+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.tar\.gz$/', basename($backupFile), $matches)) {
+            return null;
+        }
+        
+        $account = $matches[1];
+        $timestamp = $matches[2];
+        $dbBackupName = "db-backup-{$account}_{$timestamp}.tar.gz";
+        
+        // Check if DB backup exists in same directory
+        $dir = dirname($backupFile);
+        $dbBackupPath = ($dir === '.' || $dir === '') ? $dbBackupName : $dir . '/' . $dbBackupName;
+        
+        // Verify file exists at destination
+        $destination = (new BackBorkDestinationsParser())->getDestinationById($destinationId);
+        if (!$destination) {
+            return null;
+        }
+        
+        $validator = new BackBorkDestinationsValidator();
+        $transport = $validator->getTransportForDestination($destination);
+        
+        if ($transport->fileExists($dbBackupPath, $destination)) {
+            return $dbBackupPath;
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Clean up temporary files.
+     * 
+     * @param array $files List of file paths to delete
+     */
+    private function cleanupFiles($files) {
+        foreach ($files as $file) {
+            if ($file && strpos($file, '/home/backbork_tmp') === 0 && file_exists($file)) {
+                unlink($file);
+                BackBorkConfig::debugLog("Cleaned up temp file: {$file}");
+            }
+        }
+    }
+    
+    /**
      * Execute restore using appropriate WHM tool.
      * Automatically selects backup_restore_manager or restorepkg based on WHM version.
      * 
@@ -162,73 +255,23 @@ class BackBorkRestoreManager {
      * @return array Result with success status and details
      */
     private function executeRestore($backupPath, $options = []) {
-        // Determine which restore method to use based on WHM version
-        $useManager = $this->preferRestoreManager();
-        
-        // Use backup_restore_manager for WHM 11.110+ if available
-        if ($useManager && file_exists(self::BACKUP_RESTORE_MANAGER)) {
-            return $this->restoreViaManager($backupPath, $options);
-        }
-        
-        // Fall back to traditional restorepkg script
+        // Always use restorepkg for direct file restoration
+        // backup_restore_manager is queue-based and designed for restore points,
+        // not direct file restoration. restorepkg supports --disable=Module for
+        // granular control and is the documented approach for file-based restores.
         return $this->restoreViaRestorepkg($backupPath, $options);
     }
     
     /**
-     * Restore via backup_restore_manager (newer WHM versions 11.110+).
-     * Provides better handling and more options than restorepkg.
-     * 
-     * @param string $backupPath Absolute path to backup file
-     * @param array $options Restore options (newuser, ip)
-     * @return array Result with success status and details
-     */
-    private function restoreViaManager($backupPath, $options = []) {
-        // Build backup_restore_manager command
-        $command = self::BACKUP_RESTORE_MANAGER;
-        $command .= ' --restore';
-        $command .= ' --file=' . escapeshellarg($backupPath);
-        
-        // Add optional new username if restoring to different account
-        if (!empty($options['newuser'])) {
-            $command .= ' --newuser=' . escapeshellarg($options['newuser']);
-        }
-        
-        // Add optional specific IP assignment
-        if (!empty($options['ip'])) {
-            $command .= ' --ip=' . escapeshellarg($options['ip']);
-        }
-        
-        // Execute command and capture output
-        $output = [];
-        $returnCode = 0;
-        exec($command . ' 2>&1', $output, $returnCode);
-        
-        $outputStr = implode("\n", $output);
-        
-        // Check for execution failure
-        if ($returnCode !== 0) {
-            return [
-                'success' => false,
-                'message' => 'Restore failed (exit code ' . $returnCode . '): ' . $outputStr,
-                'command' => $command,
-                'output' => $output,
-                'return_code' => $returnCode
-            ];
-        }
-        
-        return [
-            'success' => true,
-            'message' => 'Restore completed successfully',
-            'output' => $output
-        ];
-    }
-    
-    /**
      * Restore via restorepkg (traditional method).
-     * Works on all WHM versions but has fewer options.
+     * Works on all WHM versions with granular --disable=Module control.
+     * 
+     * Note: backup_restore_manager is queue-based and designed for restore points
+     * (e.g., selective restoration to existing live accounts). For direct file
+     * restoration, restorepkg is the documented and recommended approach.
      * 
      * @param string $backupPath Absolute path to backup file
-     * @param array $options Restore options (force, newuser)
+     * @param array $options Restore options (force, newuser, homedir, mysql, mail, etc.)
      * @return array Result with success status and details
      */
     private function restoreViaRestorepkg($backupPath, $options = []) {
@@ -245,61 +288,169 @@ class BackBorkRestoreManager {
             $command .= ' --newuser=' . escapeshellarg($options['newuser']);
         }
         
+        // Build list of modules to disable based on unchecked options
+        // restorepkg uses --disable=Module1,Module2 format
+        $disableModules = [];
+        
+        if (isset($options['homedir']) && $options['homedir'] === false) {
+            $disableModules[] = 'Homedir';
+        }
+        if (isset($options['mysql']) && $options['mysql'] === false) {
+            $disableModules[] = 'Mysql';
+        }
+        if (isset($options['mail']) && $options['mail'] === false) {
+            $disableModules[] = 'Mail';
+            $disableModules[] = 'MailRouting';
+        }
+        if (isset($options['ssl']) && $options['ssl'] === false) {
+            $disableModules[] = 'SSL';
+        }
+        if (isset($options['cron']) && $options['cron'] === false) {
+            $disableModules[] = 'Cron';
+        }
+        if (isset($options['dns']) && $options['dns'] === false) {
+            $disableModules[] = 'ZoneFile';
+        }
+        if (isset($options['subdomains']) && $options['subdomains'] === false) {
+            // Domains module handles subdomains, parked domains, and addon domains together
+            // We'll only disable if both subdomains AND addon_domains are false
+            if (isset($options['addon_domains']) && $options['addon_domains'] === false) {
+                $disableModules[] = 'Domains';
+            }
+        }
+        
+        // Add disable flag if any modules should be skipped
+        if (!empty($disableModules)) {
+            $command .= ' --disable=' . escapeshellarg(implode(',', $disableModules));
+        }
+        
         // Add backup file path
         $command .= ' ' . escapeshellarg($backupPath);
         
-        // Execute command and capture output
-        $output = [];
-        $returnCode = 0;
-        exec($command . ' 2>&1', $output, $returnCode);
+        // Generate unique restore ID for log tracking
+        $restoreId = 'restore_' . time() . '_' . substr(md5($backupPath), 0, 8);
+        $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
         
-        $outputStr = implode("\n", $output);
+        // Log the command being executed (sanitized)
+        BackBorkConfig::debugLog("Executing restore: restorepkg " . basename($backupPath) . 
+            (!empty($disableModules) ? " --disable=" . implode(',', $disableModules) : ''));
         
-        // Check for execution failure
-        if ($returnCode !== 0) {
+        // Write initial status to log
+        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Starting restore...\n");
+        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Backup file: " . basename($backupPath) . "\n", FILE_APPEND);
+        if (!empty($disableModules)) {
+            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Disabled modules: " . implode(', ', $disableModules) . "\n", FILE_APPEND);
+        }
+        file_put_contents($logFile, str_repeat('-', 60) . "\n", FILE_APPEND);
+        
+        // Execute command with real-time output capture using proc_open
+        $descriptors = [
+            0 => ['pipe', 'r'],  // stdin
+            1 => ['pipe', 'w'],  // stdout
+            2 => ['pipe', 'w'],  // stderr
+        ];
+        
+        $process = proc_open($command, $descriptors, $pipes);
+        
+        if (!is_resource($process)) {
+            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] ERROR: Failed to start restore process\n", FILE_APPEND);
             return [
                 'success' => false,
-                'message' => 'Restore failed (exit code ' . $returnCode . '): ' . $outputStr,
-                'command' => $command,
+                'message' => 'Failed to start restore process',
+                'restore_id' => $restoreId,
+                'log_file' => $logFile
+            ];
+        }
+        
+        // Close stdin - we don't need to write to it
+        fclose($pipes[0]);
+        
+        // Set streams to non-blocking for real-time reading
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        
+        $output = [];
+        $allOutput = '';
+        
+        // Read output in real-time and write to log file
+        while (true) {
+            $stdout = fgets($pipes[1]);
+            $stderr = fgets($pipes[2]);
+            
+            if ($stdout !== false) {
+                $line = trim($stdout);
+                if ($line !== '') {
+                    $output[] = $line;
+                    $allOutput .= $line . "\n";
+                    // Write to log with timestamp for important lines
+                    if (preg_match('/^(Restoring|Creating|Extracting|Installing|Updating|Running|Completed|Error|Warning|Failed)/i', $line)) {
+                        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] " . $line . "\n", FILE_APPEND);
+                    } else {
+                        file_put_contents($logFile, $line . "\n", FILE_APPEND);
+                    }
+                }
+            }
+            
+            if ($stderr !== false) {
+                $line = trim($stderr);
+                if ($line !== '') {
+                    $output[] = "[STDERR] " . $line;
+                    $allOutput .= "[STDERR] " . $line . "\n";
+                    file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] [STDERR] " . $line . "\n", FILE_APPEND);
+                }
+            }
+            
+            // Check if process has finished
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                // Read any remaining output
+                while (($line = fgets($pipes[1])) !== false) {
+                    $output[] = trim($line);
+                    file_put_contents($logFile, trim($line) . "\n", FILE_APPEND);
+                }
+                while (($line = fgets($pipes[2])) !== false) {
+                    $output[] = "[STDERR] " . trim($line);
+                    file_put_contents($logFile, "[STDERR] " . trim($line) . "\n", FILE_APPEND);
+                }
+                break;
+            }
+            
+            // Small delay to prevent CPU spinning
+            usleep(50000); // 50ms
+        }
+        
+        // Close pipes
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        
+        // Get exit code
+        $returnCode = proc_close($process);
+        
+        // Write final status
+        file_put_contents($logFile, str_repeat('-', 60) . "\n", FILE_APPEND);
+        if ($returnCode !== 0) {
+            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] RESTORE FAILED (exit code: {$returnCode})\n", FILE_APPEND);
+            return [
+                'success' => false,
+                'message' => 'Restore failed (exit code ' . $returnCode . ')',
+                'restore_id' => $restoreId,
+                'log_file' => $logFile,
                 'output' => $output,
+                'log' => $allOutput,
                 'return_code' => $returnCode
             ];
         }
         
+        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] RESTORE COMPLETED SUCCESSFULLY\n", FILE_APPEND);
+        
         return [
             'success' => true,
             'message' => 'Restore completed successfully',
-            'output' => $output
+            'restore_id' => $restoreId,
+            'log_file' => $logFile,
+            'output' => $output,
+            'log' => $allOutput
         ];
-    }
-    
-    /**
-     * Check if we should prefer backup_restore_manager over restorepkg.
-     * backup_restore_manager is recommended for WHM 11.110 and later.
-     * 
-     * @return bool True if backup_restore_manager should be used
-     */
-    private function preferRestoreManager() {
-        // Read cPanel/WHM version
-        $version = @file_get_contents('/usr/local/cpanel/version');
-        if (!$version) return false;
-        
-        // Parse version string (e.g., "11.110.0.18")
-        $version = trim($version);
-        $parts = explode('.', $version);
-        
-        // Check for version 11.110 or higher
-        if (count($parts) >= 2) {
-            $major = (int)$parts[0];
-            $minor = (int)$parts[1];
-            
-            // backup_restore_manager preferred in WHM 11.110+
-            if ($major >= 11 && $minor >= 110) {
-                return true;
-            }
-        }
-        
-        return false;
     }
     
     /**

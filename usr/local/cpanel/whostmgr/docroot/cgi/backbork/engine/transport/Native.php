@@ -202,6 +202,50 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     }
     
     /**
+     * Check if a file exists at the destination.
+     * Uses SSH for SFTP destinations.
+     * 
+     * @param string $remotePath Path to file (relative to destination base)
+     * @param array $destination Destination configuration from WHM
+     * @return bool True if file exists
+     */
+    public function fileExists($remotePath, $destination) {
+        if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
+            $host = $destination['host'] ?? '';
+            $port = $destination['port'] ?? 22;
+            $username = $destination['username'] ?? '';
+            $basePath = $destination['path'] ?? '/';
+            
+            if (empty($host) || empty($username)) {
+                return false;
+            }
+            
+            $fullPath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
+            
+            // Check file exists via SSH
+            $sshCmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes " .
+                      escapeshellarg("{$username}@{$host}") . " " .
+                      escapeshellarg("test -f " . escapeshellarg($fullPath) . " && echo 'EXISTS'");
+            
+            $output = shell_exec($sshCmd . ' 2>/dev/null');
+            return trim($output ?? '') === 'EXISTS';
+        }
+        
+        // For other types, use listFiles to check
+        $dir = dirname($remotePath);
+        $filename = basename($remotePath);
+        $files = $this->listFiles($dir, $destination);
+        
+        foreach ($files as $file) {
+            if (($file['file'] ?? '') === $filename) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
      * Delete a file from the destination.
      * Uses SSH for SFTP destinations to remove files.
      * 

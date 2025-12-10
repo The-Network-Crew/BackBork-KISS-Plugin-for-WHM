@@ -50,6 +50,9 @@ class BackBorkBackupManager {
     /** @var BackBorkPkgacct cPanel pkgacct wrapper for creating account archives */
     private $pkgacct;
     
+    /** @var BackBorkSQLBackup Hot database backup handler */
+    private $dbBackup;
+    
     /**
      * Constructor - Initialize all dependencies.
      * Sets up configuration, notification, destination parsing, and pkgacct services.
@@ -61,6 +64,7 @@ class BackBorkBackupManager {
         $this->notify = new BackBorkNotify();
         $this->destinations = new BackBorkDestinationsParser();
         $this->pkgacct = new BackBorkPkgacct();
+        $this->dbBackup = new BackBorkSQLBackup();
         
         // Ensure temp directory exists for staging backups (secure permissions)
         if (!is_dir(self::TEMP_DIR)) {
@@ -172,8 +176,8 @@ class BackBorkBackupManager {
     
     /**
      * Backup a single cPanel account.
-     * Executes pkgacct to create archive, renames with timestamp, and transports to destination.
-     * Cleans up local temp file after successful transport.
+     * Executes pkgacct (with schema-only if using hot DB backup), optionally runs
+     * mariadb-backup/mysqlbackup, and transports all files to destination.
      * 
      * @param string $account Account username to backup
      * @param array $destination Destination configuration (type, path, credentials, etc.)
@@ -198,44 +202,97 @@ class BackBorkBackupManager {
             }
         }
         
-        // Execute pkgacct to create the backup archive (cpmove-account.tar.gz)
+        // Track files to upload and cleanup
+        $filesToUpload = [];
+        $filesToCleanup = [];
+        
+        // ====================================================================
+        // STEP 1: Execute pkgacct
+        // If using mariadb-backup/mysqlbackup, pkgacct uses --dbbackup=schema
+        // ====================================================================
         $pkgResult = $this->pkgacct->execute($account, $tempDir, $userConfig);
         
-        // Check pkgacct execution result
         if (!$pkgResult['success']) {
             return $pkgResult;
         }
         
-        // Get the path to the created archive
+        // Rename archive with timestamp
         $createdFile = $pkgResult['path'];
-        
-        // Build timestamped filename for uniqueness
         $backupFile = "cpmove-{$account}_{$timestamp}.tar.gz";
         $finalFile = $tempDir . '/' . $backupFile;
         
-        // Rename archive with timestamp if needed
         if ($createdFile !== $finalFile) {
             if (!rename($createdFile, $finalFile)) {
                 return [
                     'success' => false,
-                    'message' => "Failed to rename backup file from {$createdFile} to {$finalFile}"
+                    'message' => "Failed to rename backup file"
                 ];
             }
         }
         
-        // Get appropriate transport handler based on destination type
+        $filesToUpload[] = ['local' => $finalFile, 'remote' => $account . '/' . $backupFile];
+        $filesToCleanup[] = $finalFile;
+        
+        // ====================================================================
+        // STEP 2: Hot database backup (if configured)
+        // Creates separate DB archive with data (schema already in pkgacct)
+        // ====================================================================
+        $dbMethod = $userConfig['db_backup_method'] ?? 'pkgacct';
+        
+        if (in_array($dbMethod, ['mariadb-backup', 'mysqlbackup'], true)) {
+            BackBorkConfig::debugLog("Running {$dbMethod} for account: {$account}");
+            
+            $dbResult = $this->dbBackup->backupDatabases($account, $tempDir, $userConfig);
+            
+            if (!$dbResult['success'] && empty($dbResult['skipped'])) {
+                // DB backup failed - clean up and report
+                foreach ($filesToCleanup as $file) {
+                    if (file_exists($file)) unlink($file);
+                }
+                return [
+                    'success' => false,
+                    'message' => "Database backup failed: " . ($dbResult['message'] ?? 'Unknown error')
+                ];
+            }
+            
+            // Add DB archive to upload list if created
+            if (!empty($dbResult['archive']) && file_exists($dbResult['archive'])) {
+                $dbArchiveName = basename($dbResult['archive']);
+                $filesToUpload[] = ['local' => $dbResult['archive'], 'remote' => $account . '/' . $dbArchiveName];
+                $filesToCleanup[] = $dbResult['archive'];
+            }
+        }
+        
+        // ====================================================================
+        // STEP 3: Upload all files to destination
+        // ====================================================================
         $validator = new BackBorkDestinationsValidator();
         $transport = $validator->getTransportForDestination($destination);
         
-        // Upload archive to destination (organized by account subdirectory)
-        $transportResult = $transport->upload($finalFile, $account . '/' . $backupFile, $destination);
+        $allSuccess = true;
+        $messages = [];
         
-        // Clean up local temp file after successful transport
-        if ($transportResult['success'] && file_exists($finalFile)) {
-            unlink($finalFile);
+        foreach ($filesToUpload as $file) {
+            $result = $transport->upload($file['local'], $file['remote'], $destination);
+            if (!$result['success']) {
+                $allSuccess = false;
+                $messages[] = basename($file['remote']) . ': ' . ($result['message'] ?? 'Upload failed');
+            }
         }
         
-        return $transportResult;
+        // ====================================================================
+        // STEP 4: Cleanup temp files
+        // ====================================================================
+        if ($allSuccess) {
+            foreach ($filesToCleanup as $file) {
+                if (file_exists($file)) unlink($file);
+            }
+        }
+        
+        return [
+            'success' => $allSuccess,
+            'message' => $allSuccess ? 'Backup completed successfully' : implode('; ', $messages)
+        ];
     }
     
     /**

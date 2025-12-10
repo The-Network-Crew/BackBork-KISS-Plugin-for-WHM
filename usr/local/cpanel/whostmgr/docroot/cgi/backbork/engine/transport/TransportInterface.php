@@ -65,6 +65,15 @@ interface BackBorkTransportInterface {
     public function listFiles($remotePath, $destination);
     
     /**
+     * Check if a file exists at the destination.
+     * 
+     * @param string $remotePath Path to file (relative to destination base)
+     * @param array $destination Destination configuration array
+     * @return bool True if file exists
+     */
+    public function fileExists($remotePath, $destination);
+    
+    /**
      * Delete a file from the destination.
      * Removes a backup file from remote/destination storage.
      * 

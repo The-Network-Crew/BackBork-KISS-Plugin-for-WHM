@@ -65,13 +65,9 @@ echo '[BackBork] Cron handler started at ' . date('Y-m-d H:i:s') . "\n";
 // Update last run timestamp (for health check monitoring)
 file_put_contents(CRON_LAST_RUN_FILE, time());
 
-// Prevent concurrent execution - skip if already running
-BackBorkConfig::debugLog('Checking if processor is running...');
-if ($processor->isRunning()) {
-    BackBorkConfig::debugLog('Queue processor already running, skipping');
-    exit(0);
-}
-BackBorkConfig::debugLog('Processor not running, continuing...');
+// ============================================================================
+// SPECIAL COMMANDS - Handle these BEFORE the lock check (they don't need it)
+// ============================================================================
 
 // Handle special 'cleanup' command for maintenance tasks
 if (isset($argv[1]) && $argv[1] === 'cleanup') {
@@ -84,6 +80,18 @@ if (isset($argv[1]) && $argv[1] === 'summary') {
     sendDailySummary();
     exit(0);
 }
+
+// ============================================================================
+// QUEUE PROCESSING - Requires exclusive lock to prevent concurrent execution
+// ============================================================================
+
+// Prevent concurrent execution - skip if already running
+BackBorkConfig::debugLog('Checking if processor is running...');
+if ($processor->isRunning()) {
+    BackBorkConfig::debugLog('Queue processor already running, skipping');
+    exit(0);
+}
+BackBorkConfig::debugLog('Processor not running, continuing...');
 
 // Check cron health and send alerts if issues detected
 performHealthCheck();

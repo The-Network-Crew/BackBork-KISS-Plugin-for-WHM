@@ -15,7 +15,9 @@ BackBork wraps WHM's existing backup tools into a **clean interface**. No reinve
 
 > **KISS** = Keep It Simple, Stupid
 
-We've built this for sysadmins who want reliable backups without wading through WHM's cluttered interface. Select your accounts, pick a destination, click backup. Done.
+We've built this for sysadmins and resellers who want reliable account backups without having to opt for a flawed paid offering to get around the native backup limitations (ie. backs up all accounts _before_ transporting & deleting all, meaning disk allocations need to be 250-300%)
+
+Select your accounts, pick a destination, backup/restore now or queue it. Done.
 
 ---
 

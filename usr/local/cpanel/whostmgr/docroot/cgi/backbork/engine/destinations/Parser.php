@@ -41,10 +41,12 @@ class BackBorkDestinationsParser {
     /**
      * Get all available backup destinations from WHM configuration.
      * Combines destinations from config directory, legacy config, and ensures local option.
+     * Filters out root-only destinations for non-root users.
      * 
+     * @param bool $isRoot Whether the requesting user is root (default true for backwards compat)
      * @return array Array with 'destinations' key containing list of destination configs
      */
-    public function getAvailableDestinations() {
+    public function getAvailableDestinations($isRoot = true) {
         $destinations = [];
         
         // Read destinations from the WHM backup destinations directory
@@ -86,7 +88,35 @@ class BackBorkDestinationsParser {
             ]);
         }
         
+        // Filter out root-only destinations for non-root users
+        if (!$isRoot) {
+            $destinations = $this->filterRootOnlyDestinations($destinations);
+        }
+        
         return ['destinations' => $destinations];
+    }
+    
+    /**
+     * Filter out destinations marked as root-only.
+     * 
+     * @param array $destinations List of all destinations
+     * @return array Filtered list excluding root-only destinations
+     */
+    private function filterRootOnlyDestinations($destinations) {
+        // Get the list of root-only destination IDs from global config
+        $config = new BackBorkConfig();
+        $globalConfig = $config->getGlobalConfig();
+        $rootOnlyIds = $globalConfig['root_only_destinations'] ?? [];
+        
+        // If no restrictions, return all
+        if (empty($rootOnlyIds)) {
+            return $destinations;
+        }
+        
+        // Filter out destinations that are marked root-only
+        return array_values(array_filter($destinations, function($dest) use ($rootOnlyIds) {
+            return !in_array($dest['id'], $rootOnlyIds, true);
+        }));
     }
     
     /**

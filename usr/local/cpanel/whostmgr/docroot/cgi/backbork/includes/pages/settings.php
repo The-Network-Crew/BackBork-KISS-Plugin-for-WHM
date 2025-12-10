@@ -77,6 +77,22 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
         </a>
     </div>
 
+    <?php if ($settingsIsRoot): ?>
+    <!-- ================================================================
+         ROOT-ONLY: Destination Visibility
+         Control which destinations resellers can see and use
+    ================================================================ -->
+    <div class="backbork-card">
+        <h3>🔐 Destination Visibility (Root Only)</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Mark destinations as root-only to hide them from resellers. This does not affect backups already in progress.
+        </p>
+        <div id="destination-visibility-list">
+            <div class="loading-spinner"></div> Loading destinations...
+        </div>
+    </div>
+    <?php endif; ?>
+
     <div class="backbork-card">
         <h3>Notification Settings</h3>
         
@@ -131,7 +147,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
                     <option value="pkgacct" selected>pkgacct (default mysqldump)</option>
                     <option value="mariadb-backup">mariadb-backup (hot backup)</option>
                     <option value="mysqlbackup">mysqlbackup (MySQL Enterprise)</option>
-                    <option value="skip">Skip databases (use --skipmysql)</option>
+                    <option value="skip">Skip databases entirely</option>
                 </select>
             </div>
             <div class="form-group">

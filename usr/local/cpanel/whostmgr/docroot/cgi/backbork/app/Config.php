@@ -187,6 +187,7 @@ class BackBorkConfig {
             'schedules_locked' => false,     // Resellers can manage schedules by default
             'schedules_locked_at' => null,   // Timestamp when lock was enabled
             'schedules_locked_by' => null,   // User who enabled the lock
+            'root_only_destinations' => [],  // Destination IDs only visible to root
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s')
         ];
@@ -227,6 +228,67 @@ class BackBorkConfig {
             'schedules_locked_by' => $locked ? $user : null
         ];
         return $this->saveGlobalConfig($config, $user);
+    }
+    
+    /**
+     * Get array of destination IDs that are root-only
+     * 
+     * @return array List of destination IDs
+     */
+    public static function getRootOnlyDestinations() {
+        if (!file_exists(self::GLOBAL_CONFIG_FILE)) {
+            return [];
+        }
+        
+        $config = json_decode(file_get_contents(self::GLOBAL_CONFIG_FILE), true);
+        return isset($config['root_only_destinations']) ? $config['root_only_destinations'] : [];
+    }
+    
+    /**
+     * Check if a specific destination is root-only
+     * 
+     * @param string $destId Destination ID
+     * @return bool True if destination is root-only
+     */
+    public static function isDestinationRootOnly($destId) {
+        $rootOnly = self::getRootOnlyDestinations();
+        return in_array($destId, $rootOnly);
+    }
+    
+    /**
+     * Set a destination's root-only visibility
+     * 
+     * @param string $destId Destination ID
+     * @param bool $rootOnly True to make root-only, false for all users
+     * @return bool True on success
+     */
+    public static function setDestinationRootOnly($destId, $rootOnly) {
+        // Get current global config
+        $config = [];
+        if (file_exists(self::GLOBAL_CONFIG_FILE)) {
+            $config = json_decode(file_get_contents(self::GLOBAL_CONFIG_FILE), true);
+            if (!is_array($config)) {
+                $config = [];
+            }
+        }
+        
+        // Get current root-only list
+        $rootOnlyDests = isset($config['root_only_destinations']) ? $config['root_only_destinations'] : [];
+        
+        if ($rootOnly) {
+            // Add to list if not already there
+            if (!in_array($destId, $rootOnlyDests)) {
+                $rootOnlyDests[] = $destId;
+            }
+        } else {
+            // Remove from list
+            $rootOnlyDests = array_values(array_diff($rootOnlyDests, [$destId]));
+        }
+        
+        $config['root_only_destinations'] = $rootOnlyDests;
+        $config['updated_at'] = date('Y-m-d H:i:s');
+        
+        return file_put_contents(self::GLOBAL_CONFIG_FILE, json_encode($config, JSON_PRETTY_PRINT)) !== false;
     }
     
     /**

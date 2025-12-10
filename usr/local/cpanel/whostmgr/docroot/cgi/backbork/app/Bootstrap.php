@@ -131,10 +131,12 @@ class BackBorkBootstrap {
         require_once(BACKBORK_BASE_PATH . '/engine/destinations/Validator.php');  // Validate destinations
         
         // Backup engine
+        require_once(BACKBORK_BASE_PATH . '/engine/backup/SQL.php');              // Hot DB backups (mariadb-backup/mysqlbackup)
         require_once(BACKBORK_BASE_PATH . '/engine/backup/Pkgacct.php');          // pkgacct wrapper
         require_once(BACKBORK_BASE_PATH . '/engine/backup/BackupManager.php');    // Backup orchestration
         
         // Restore engine
+        require_once(BACKBORK_BASE_PATH . '/engine/restore/SQL.php');             // Database restore
         require_once(BACKBORK_BASE_PATH . '/engine/restore/Retrieval.php');       // Download backups
         require_once(BACKBORK_BASE_PATH . '/engine/restore/RestoreManager.php');  // Restore orchestration
         

@@ -205,7 +205,33 @@ data:
 
 We use this to:
 - Show database info in Settings
-- Decide between mariadb-backup and mysqlbackup
+- Recommend mariadb-backup vs mysqlbackup
+
+---
+
+### 🔥 Hot Database Backups
+
+BackBork supports hot database backups using mariadb-backup or mysqlbackup.
+
+#### How It Works
+
+| Step | Action |
+|------|--------|
+| 1️⃣ | pkgacct runs with `--dbbackup=schema` (schema only, no data) |
+| 2️⃣ | mariadb-backup/mysqlbackup runs to capture DB data |
+| 3️⃣ | Both files uploaded: `cpmove-*` + `db-backup-*` |
+| 4️⃣ | On restore: main backup restored first (includes schema) |
+| 5️⃣ | DB data restored from hot backup file |
+| 6️⃣ | Both temp files cleaned up |
+
+#### Backup Methods
+
+| Method | Description |
+|--------|-------------|
+| `pkgacct` | Default mysqldump via pkgacct (locks tables briefly) |
+| `mariadb-backup` | Hot backup for MariaDB (no locks!) |
+| `mysqlbackup` | MySQL Enterprise Backup (commercial) |
+| `skip` | Skip databases entirely |
 
 ---
 

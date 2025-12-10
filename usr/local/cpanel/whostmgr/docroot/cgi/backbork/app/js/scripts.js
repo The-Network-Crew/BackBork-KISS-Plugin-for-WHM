@@ -49,7 +49,7 @@
                 if (this.dataset.tab === 'queue') loadQueue();
                 if (this.dataset.tab === 'logs') loadLogs();
                 if (this.dataset.tab === 'schedule') loadSchedules();
-                if (this.dataset.tab === 'settings') checkCronStatus();
+                if (this.dataset.tab === 'settings') { checkCronStatus(); loadDestinationVisibility(); }
             });
         });
     }
@@ -611,6 +611,68 @@
         });
     }
 
+    // Load Destination Visibility (root only)
+    function loadDestinationVisibility() {
+        const container = document.getElementById('destination-visibility-list');
+        if (!container) return; // Not root user, element doesn't exist
+        
+        // Get all destinations and current visibility settings in parallel
+        Promise.all([
+            apiCall('get_destinations', {}, 'GET'),
+            apiCall('get_destination_visibility', {}, 'GET')
+        ]).then(([destData, visData]) => {
+            const destinations = destData.destinations || [];
+            const rootOnlyIds = (visData.root_only_destinations || []);
+            
+            if (destinations.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted);">No destinations configured.</p>';
+                return;
+            }
+            
+            let html = '<div class="checkbox-group">';
+            destinations.forEach(dest => {
+                const isRootOnly = rootOnlyIds.includes(dest.id);
+                const destName = dest.name || dest.id;
+                const destType = dest.type || 'Unknown';
+                html += `
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" class="dest-visibility-checkbox" data-dest-id="${dest.id}" ${isRootOnly ? 'checked' : ''}>
+                        <span><strong>${destName}</strong> <small style="color: var(--text-muted);">(${destType})</small></span>
+                        ${isRootOnly ? '<span style="font-size: 11px; padding: 2px 6px; background: var(--danger-light); color: var(--danger); border-radius: 3px;">Root Only</span>' : ''}
+                    </label>
+                `;
+            });
+            html += '</div>';
+            html += '<p style="font-size: 12px; color: var(--text-muted); margin-top: 12px;">Check a destination to make it root-only (hidden from resellers).</p>';
+            
+            container.innerHTML = html;
+            
+            // Add event listeners to checkboxes
+            container.querySelectorAll('.dest-visibility-checkbox').forEach(cb => {
+                cb.addEventListener('change', function() {
+                    const destId = this.dataset.destId;
+                    const rootOnly = this.checked;
+                    
+                    apiCall('set_destination_visibility', { destination_id: destId, root_only: rootOnly }).then(result => {
+                        if (result.success) {
+                            // Refresh the list to update labels
+                            loadDestinationVisibility();
+                        } else {
+                            alert('Failed to update destination visibility: ' + (result.message || 'Unknown error'));
+                            this.checked = !rootOnly; // Revert checkbox
+                        }
+                    }).catch(err => {
+                        alert('Error updating destination visibility');
+                        this.checked = !rootOnly; // Revert checkbox
+                    });
+                });
+            });
+        }).catch(err => {
+            container.innerHTML = '<p style="color: var(--danger);">Failed to load destinations.</p>';
+            console.error('Failed to load destination visibility:', err);
+        });
+    }
+
     // Refresh Status
     function refreshStatus() {
         const activeTab = document.querySelector('.backbork-tab.active');
@@ -1072,7 +1134,7 @@
         });
     }
 
-    // Start Restore
+    // Start Restore with real-time log tailing
     function startRestore(backupFile, account, options, destination) {
         const progressCard = document.getElementById('restore-progress');
         const progressBar = document.getElementById('restore-progress-bar');
@@ -1080,27 +1142,110 @@
         const logDiv = document.getElementById('restore-log');
         
         progressCard.style.display = 'block';
-        progressBar.style.width = '0%';
+        progressBar.style.width = '5%';
         statusMessage.innerHTML = '<div class="loading-spinner"></div> Starting restore...';
-        logDiv.innerHTML = '';
+        logDiv.innerHTML = '<pre class="restore-log-output" style="background: var(--terminal-bg); color: var(--terminal-text); padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></pre>';
         
+        const logOutput = logDiv.querySelector('.restore-log-output');
+        let restoreId = null;
+        let logOffset = 0;
+        let pollInterval = null;
+        
+        // Function to poll for log updates
+        function pollRestoreLog() {
+            if (!restoreId) return;
+            
+            apiCall('get_restore_log', { restore_id: restoreId, offset: logOffset }, 'GET')
+                .then(data => {
+                    if (data.success && data.content) {
+                        // Append new content
+                        logOutput.textContent += data.content;
+                        logOffset = data.offset;
+                        
+                        // Auto-scroll to bottom
+                        logOutput.scrollTop = logOutput.scrollHeight;
+                        
+                        // Update progress bar based on log content (rough estimate)
+                        const text = logOutput.textContent.toLowerCase();
+                        if (text.includes('extracting')) progressBar.style.width = '20%';
+                        else if (text.includes('creating') || text.includes('restoring')) progressBar.style.width = '40%';
+                        else if (text.includes('mysql') || text.includes('database')) progressBar.style.width = '60%';
+                        else if (text.includes('mail') || text.includes('dns')) progressBar.style.width = '75%';
+                        else if (text.includes('completed') || text.includes('finished')) progressBar.style.width = '95%';
+                    }
+                    
+                    // Check if complete
+                    if (data.complete) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                        
+                        // Check final status
+                        if (logOutput.textContent.includes('RESTORE COMPLETED SUCCESSFULLY')) {
+                            progressBar.style.width = '100%';
+                            statusMessage.innerHTML = '<span class="status-badge status-success">✓ Restore completed successfully!</span>';
+                        } else if (logOutput.textContent.includes('RESTORE FAILED')) {
+                            progressBar.style.width = '100%';
+                            progressBar.style.background = 'var(--danger)';
+                            statusMessage.innerHTML = '<span class="status-badge status-error">✗ Restore failed</span>';
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.error('Error polling restore log:', err);
+                });
+        }
+        
+        // Start the restore
         apiCall('restore_backup', {
             backup_file: backupFile,
             account: account,
             options: options,
             destination: destination
         }).then(data => {
-            if (data.success) {
-                progressBar.style.width = '100%';
-                statusMessage.innerHTML = '<span class="status-badge status-success">Restore completed!</span>';
-                logDiv.innerHTML = data.log || 'Restore completed successfully.';
-            } else {
-                statusMessage.innerHTML = '<span class="status-badge status-error">Restore failed</span>';
-                logDiv.innerHTML = data.message || 'Unknown error occurred.';
+            if (data.restore_id) {
+                restoreId = data.restore_id;
+                statusMessage.innerHTML = '<div class="loading-spinner"></div> Restore in progress...';
+                progressBar.style.width = '10%';
+                
+                // Show initial log content if available
+                if (data.log) {
+                    logOutput.textContent = data.log;
+                    logOutput.scrollTop = logOutput.scrollHeight;
+                }
+                
+                // Start polling for log updates (every 500ms)
+                pollInterval = setInterval(pollRestoreLog, 500);
+                
+                // Also do immediate poll
+                pollRestoreLog();
+            }
+            
+            // Handle immediate completion (small restores)
+            if (data.success !== undefined) {
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                }
+                
+                if (data.success) {
+                    progressBar.style.width = '100%';
+                    statusMessage.innerHTML = '<span class="status-badge status-success">✓ Restore completed successfully!</span>';
+                    if (data.log) {
+                        logOutput.textContent = data.log;
+                    }
+                } else {
+                    progressBar.style.width = '100%';
+                    progressBar.style.background = 'var(--danger)';
+                    statusMessage.innerHTML = '<span class="status-badge status-error">✗ Restore failed</span>';
+                    logOutput.textContent = data.log || data.message || 'Unknown error occurred.';
+                }
             }
         }).catch(err => {
-            statusMessage.innerHTML = '<span class="status-badge status-error">Error</span>';
-            logDiv.innerHTML = err.message;
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+            statusMessage.innerHTML = '<span class="status-badge status-error">✗ Error</span>';
+            logOutput.textContent = 'Error: ' + err.message;
         });
     }
 

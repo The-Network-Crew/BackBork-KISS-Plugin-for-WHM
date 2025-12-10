@@ -72,8 +72,19 @@ class BackBorkPkgacct {
             $options .= ' --mysql=' . escapeshellarg($userConfig['mysql_version']);
         }
         
-        // Database backup type: 'all', 'mysql', 'pgsql', etc.
-        if (!empty($userConfig['dbbackup_type']) && $userConfig['dbbackup_type'] !== 'all') {
+        // Database backup method handling
+        $dbMethod = $userConfig['db_backup_method'] ?? 'pkgacct';
+        if ($dbMethod === 'skip') {
+            // User explicitly wants to skip databases entirely
+            $options .= ' --skipmysql';
+            BackBorkConfig::debugLog("pkgacct: Adding --skipmysql (db_backup_method=skip)");
+        } elseif (in_array($dbMethod, ['mariadb-backup', 'mysqlbackup'], true)) {
+            // Using hot DB backup tool - export schema only from pkgacct
+            // The actual data will come from mariadb-backup/mysqlbackup
+            $options .= ' --dbbackup=schema';
+            BackBorkConfig::debugLog("pkgacct: Adding --dbbackup=schema (db_backup_method={$dbMethod})");
+        } elseif (!empty($userConfig['dbbackup_type']) && $userConfig['dbbackup_type'] !== 'all') {
+            // Database backup type: 'all', 'schema', or specific type
             $options .= ' --dbbackup=' . escapeshellarg($userConfig['dbbackup_type']);
         }
         
