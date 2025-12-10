@@ -51,6 +51,9 @@ cat > /etc/cron.d/backbork << 'EOF'
 # BackBork KISS - Queue and Schedule Processor
 */5 * * * * root /usr/local/cpanel/3rdparty/bin/php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/cron/handler.php >> /usr/local/cpanel/3rdparty/backbork/logs/cron.log 2>&1
 
+# Daily summary notification (runs at midnight)
+0 0 * * * root /usr/local/cpanel/3rdparty/bin/php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/cron/handler.php summary >> /usr/local/cpanel/3rdparty/backbork/logs/cron.log 2>&1
+
 # Daily cleanup of old completed jobs and logs (runs at 3 AM)
 0 3 * * * root /usr/local/cpanel/3rdparty/bin/php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/cron/handler.php cleanup >> /usr/local/cpanel/3rdparty/backbork/logs/cron.log 2>&1
 EOF
@@ -122,7 +125,51 @@ Retention pruning runs **every hour** as part of the main cron job to ensure bac
 - Account has 5 backups → nothing deleted (5 ≤ 7)
 - Account has 1 backup (from failed runs) → nothing deleted (1 ≤ 7)
 
-### 3️⃣ Daily Cleanup
+### 3️⃣ Daily Summary (Midnight)
+
+```cron
+0 0 * * * root php .../cron/handler.php summary
+```
+
+| Aspect | Details |
+|--------|---------|
+| **Schedule** | Daily at midnight (00:00) |
+| **User** | root (sends to all opted-in users) |
+| **Purpose** | Send daily activity digest via Email/Slack |
+
+> [!IMPORTANT]
+> **New in v1.2.8:** Daily summary notifications provide a digest of the past 24 hours.
+
+**Opt-In Setting:**
+
+Each user can enable daily summaries in **Settings → Notification Settings**:
+- ☑️ **Daily Summary (midnight)** checkbox
+
+The cron job scans all user configs and sends summaries only to users who have:
+1. Enabled the "Daily Summary" checkbox
+2. Configured Email and/or Slack webhook
+
+**What It Reports:**
+
+| Metric | Description |
+|--------|-------------|
+| 📊 **Backups** | Successful and failed backup counts |
+| 🔄 **Restores** | Successful and failed restore counts |
+| 📅 **Schedules** | Number of scheduled jobs that ran |
+| 🗑️ **Pruned** | Backups deleted by retention policy |
+| 📋 **Queue** | Current pending/completed/failed jobs |
+| ❌ **Errors** | Recent error messages (up to 5) |
+
+**Notification Channels:**
+- **Email:** Plain text digest to configured address
+- **Slack:** Rich Block Kit formatted message with sections
+
+**Status Indicators:**
+- ✅ **All Good** — Activity with no failures
+- ⚠️ **Issues Detected** — One or more failures occurred
+- ℹ️ **No Activity** — Nothing happened in 24 hours
+
+### 4️⃣ Daily Cleanup
 
 ```cron
 0 3 * * * root php .../cron/handler.php cleanup
@@ -139,7 +186,6 @@ Retention pruning runs **every hour** as part of the main cron job to ensure bac
 1. 🗑️ Removes completed job files older than 30 days
 2. 📝 Rotates log files
 3. 🧹 Cleans up orphaned temp files
-4. 📊 Generates daily summary (if configured)
 
 ---
 

@@ -193,6 +193,7 @@
             if (data.notify_success !== undefined) document.getElementById('notify-success').checked = data.notify_success;
             if (data.notify_failure !== undefined) document.getElementById('notify-failure').checked = data.notify_failure;
             if (data.notify_start !== undefined) document.getElementById('notify-start').checked = data.notify_start;
+            if (data.notify_daily_summary !== undefined) document.getElementById('notify-daily-summary').checked = data.notify_daily_summary;
             
             // Backup settings
             if (data.temp_directory) document.getElementById('temp-directory').value = data.temp_directory;
@@ -838,6 +839,7 @@
                     notify_success: document.getElementById('notify-success').checked,
                     notify_failure: document.getElementById('notify-failure').checked,
                     notify_start: document.getElementById('notify-start').checked,
+                    notify_daily_summary: document.getElementById('notify-daily-summary').checked,
                     
                     // Debug mode
                     debug_mode: debugModeEl ? debugModeEl.checked : false,

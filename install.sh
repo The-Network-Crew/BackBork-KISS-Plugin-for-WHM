@@ -222,6 +222,9 @@ cat > "${CRON_FILE}" << 'CRON_EOF'
 # Runs every 5 minutes to process backup queue and scheduled jobs
 */5 * * * * root /usr/local/cpanel/3rdparty/bin/php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/cron/handler.php >> /usr/local/cpanel/3rdparty/backbork/logs/cron.log 2>&1
 
+# Daily summary notification (runs at midnight)
+0 0 * * * root /usr/local/cpanel/3rdparty/bin/php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/cron/handler.php summary >> /usr/local/cpanel/3rdparty/backbork/logs/cron.log 2>&1
+
 # Daily cleanup of old completed jobs and logs (runs at 3 AM)
 0 3 * * * root /usr/local/cpanel/3rdparty/bin/php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/cron/handler.php cleanup >> /usr/local/cpanel/3rdparty/backbork/logs/cron.log 2>&1
 CRON_EOF

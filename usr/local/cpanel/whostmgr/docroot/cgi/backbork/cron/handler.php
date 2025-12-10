@@ -79,6 +79,12 @@ if (isset($argv[1]) && $argv[1] === 'cleanup') {
     exit(0);
 }
 
+// Handle special 'summary' command for daily summary notifications
+if (isset($argv[1]) && $argv[1] === 'summary') {
+    sendDailySummary();
+    exit(0);
+}
+
 // Check cron health and send alerts if issues detected
 performHealthCheck();
 
@@ -325,4 +331,329 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
     
     // Record notification timestamp to prevent re-alerting too soon
     file_put_contents($healthFile, time());
+}
+
+/**
+ * Send daily summary notification via email and Slack.
+ * Called with 'summary' argument: php handler.php summary
+ * 
+ * Iterates through all users who have daily summary enabled and sends
+ * them a digest of activity from the past 24 hours.
+ */
+function sendDailySummary() {
+    error_log('[BackBork] Generating daily summaries...');
+    
+    $config = new BackBorkConfig();
+    $hostname = gethostname() ?: 'unknown';
+    $date = date('Y-m-d');
+    $generatedAt = date('Y-m-d H:i:s T');
+    
+    // Gather statistics once (shared across all users)
+    $stats = gatherDailyStats();
+    
+    // Determine overall status
+    $hasFailures = ($stats['backup_failures'] > 0 || $stats['restore_failures'] > 0);
+    $hasActivity = ($stats['total_events'] > 0);
+    $statusEmoji = $hasFailures ? '⚠️' : ($hasActivity ? '✅' : 'ℹ️');
+    $statusText = $hasFailures ? 'Issues Detected' : ($hasActivity ? 'All Good' : 'No Activity');
+    
+    // Find all users with daily summary enabled
+    $usersToNotify = [];
+    
+    // Check root user
+    $rootConfig = $config->getUserConfig('root');
+    if (!empty($rootConfig['notify_daily_summary'])) {
+        $usersToNotify['root'] = $rootConfig;
+    }
+    
+    // Check reseller users (scan config directory)
+    $configDir = '/usr/local/cpanel/3rdparty/backbork/config';
+    if (is_dir($configDir)) {
+        foreach (glob($configDir . '/*.json') as $configFile) {
+            $username = basename($configFile, '.json');
+            if ($username === 'root' || $username === 'global') continue;
+            
+            $userConfig = $config->getUserConfig($username);
+            if (!empty($userConfig['notify_daily_summary'])) {
+                $usersToNotify[$username] = $userConfig;
+            }
+        }
+    }
+    
+    if (empty($usersToNotify)) {
+        error_log('[BackBork] Daily summary skipped - no users have it enabled');
+        return;
+    }
+    
+    error_log('[BackBork] Sending daily summary to ' . count($usersToNotify) . ' user(s)');
+    
+    // Send summary to each user
+    foreach ($usersToNotify as $username => $userConfig) {
+        // Skip if no notification channels configured
+        if (empty($userConfig['notify_email']) && empty($userConfig['slack_webhook'])) {
+            continue;
+        }
+        
+        sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $generatedAt, $statusEmoji, $statusText);
+    }
+    
+    error_log('[BackBork] Daily summary complete');
+}
+
+/**
+ * Send daily summary to a specific user.
+ * 
+ * @param string $username User receiving the summary
+ * @param array $userConfig User's notification configuration
+ * @param array $stats Gathered statistics
+ * @param string $hostname Server hostname
+ * @param string $date Current date
+ * @param string $generatedAt Generation timestamp
+ * @param string $statusEmoji Status indicator emoji
+ * @param string $statusText Status description
+ */
+function sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $generatedAt, $statusEmoji, $statusText) {
+    // ========================================================================
+    // EMAIL NOTIFICATION
+    // ========================================================================
+    if (!empty($userConfig['notify_email'])) {
+        $subject = "{$statusEmoji} [BackBork] Daily Summary for {$hostname} - {$date}";
+        
+        $body = "BackBork Daily Summary\n";
+        $body .= "══════════════════════════\n\n";
+        $body .= "Server: {$hostname}\n";
+        $body .= "Date: {$date}\n";
+        $body .= "Status: {$statusText}\n";
+        $body .= "Generated: {$generatedAt}\n\n";
+        
+        $body .= "📊 Activity Summary (Last 24 Hours)\n";
+        $body .= "──────────────────────────\n";
+        $body .= "Backups Completed:  {$stats['backup_successes']}\n";
+        $body .= "Backups Failed:     {$stats['backup_failures']}\n";
+        $body .= "Restores Completed: {$stats['restore_successes']}\n";
+        $body .= "Restores Failed:    {$stats['restore_failures']}\n";
+        $body .= "Schedules Run:      {$stats['schedules_run']}\n";
+        $body .= "Backups Pruned:     {$stats['backups_pruned']}\n";
+        $body .= "Total Events:       {$stats['total_events']}\n\n";
+        
+        // Queue status
+        $body .= "📋 Current Queue Status\n";
+        $body .= "──────────────────────────\n";
+        $body .= "Pending Jobs:    {$stats['queue_pending']}\n";
+        $body .= "Completed Jobs:  {$stats['queue_completed']}\n";
+        $body .= "Failed Jobs:     {$stats['queue_failed']}\n\n";
+        
+        // Recent errors (if any)
+        if (!empty($stats['recent_errors'])) {
+            $body .= "❌ Recent Errors\n";
+            $body .= "──────────────────────────\n";
+            foreach (array_slice($stats['recent_errors'], 0, 5) as $error) {
+                $body .= "• [{$error['timestamp']}] {$error['type']}: {$error['message']}\n";
+            }
+            $body .= "\n";
+        }
+        
+        $body .= "══════════════════════════\n";
+        $body .= "BackBork KISS v" . BACKBORK_VERSION . " | Open-source Disaster Recovery\n";
+        
+        mail($userConfig['notify_email'], $subject, $body, "From: backbork@{$hostname}");
+        error_log('[BackBork] Daily summary email sent to ' . $userConfig['notify_email']);
+    }
+    
+    // ========================================================================
+    // SLACK NOTIFICATION
+    // ========================================================================
+    if (!empty($userConfig['slack_webhook'])) {
+        $slackPayload = [
+            'text' => "{$statusEmoji} BackBork Daily Summary for {$hostname}",
+            'blocks' => [
+                [
+                    'type' => 'header',
+                    'text' => [
+                        'type' => 'plain_text',
+                        'text' => "{$statusEmoji} Daily Summary - {$date}",
+                        'emoji' => true
+                    ]
+                ],
+                [
+                    'type' => 'section',
+                    'fields' => [
+                        ['type' => 'mrkdwn', 'text' => "*Server:*\n{$hostname}"],
+                        ['type' => 'mrkdwn', 'text' => "*Status:*\n{$statusText}"]
+                    ]
+                ],
+                [
+                    'type' => 'divider'
+                ],
+                [
+                    'type' => 'section',
+                    'text' => [
+                        'type' => 'mrkdwn',
+                        'text' => "*📊 Activity (24h)*"
+                    ]
+                ],
+                [
+                    'type' => 'section',
+                    'fields' => [
+                        ['type' => 'mrkdwn', 'text' => "*Backups:*\n✅ {$stats['backup_successes']} | ❌ {$stats['backup_failures']}"],
+                        ['type' => 'mrkdwn', 'text' => "*Restores:*\n✅ {$stats['restore_successes']} | ❌ {$stats['restore_failures']}"],
+                        ['type' => 'mrkdwn', 'text' => "*Schedules Run:*\n{$stats['schedules_run']}"],
+                        ['type' => 'mrkdwn', 'text' => "*Pruned:*\n{$stats['backups_pruned']}"]
+                    ]
+                ],
+                [
+                    'type' => 'section',
+                    'text' => [
+                        'type' => 'mrkdwn',
+                        'text' => "*📋 Queue:* {$stats['queue_pending']} pending | {$stats['queue_completed']} completed | {$stats['queue_failed']} failed"
+                    ]
+                ]
+            ]
+        ];
+        
+        // Add errors section if any
+        if (!empty($stats['recent_errors'])) {
+            $errorText = "*❌ Recent Errors:*\n";
+            foreach (array_slice($stats['recent_errors'], 0, 3) as $error) {
+                $errorText .= "• {$error['type']}: " . substr($error['message'], 0, 50) . "...\n";
+            }
+            $slackPayload['blocks'][] = [
+                'type' => 'section',
+                'text' => ['type' => 'mrkdwn', 'text' => $errorText]
+            ];
+        }
+        
+        // Footer
+        $slackPayload['blocks'][] = [
+            'type' => 'context',
+            'elements' => [
+                ['type' => 'mrkdwn', 'text' => "BackBork KISS v" . BACKBORK_VERSION . " | Generated {$generatedAt}"]
+            ]
+        ];
+        
+        $ch = curl_init($userConfig['slack_webhook']);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($slackPayload),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+        error_log('[BackBork] Daily summary sent to Slack');
+    }
+}
+
+/**
+ * Gather statistics from logs and queue for the past 24 hours.
+ * 
+ * @return array Statistics array with counts and recent errors
+ */
+function gatherDailyStats() {
+    $stats = [
+        'backup_successes' => 0,
+        'backup_failures' => 0,
+        'restore_successes' => 0,
+        'restore_failures' => 0,
+        'schedules_run' => 0,
+        'backups_pruned' => 0,
+        'total_events' => 0,
+        'queue_pending' => 0,
+        'queue_completed' => 0,
+        'queue_failed' => 0,
+        'recent_errors' => []
+    ];
+    
+    $cutoffTime = strtotime('-24 hours');
+    
+    // Parse operations log for last 24 hours
+    $logFile = BackBorkLog::LOG_FILE;
+    if (file_exists($logFile)) {
+        $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        
+        foreach ($lines as $line) {
+            $entry = json_decode($line, true);
+            if (!$entry) continue;
+            
+            // Check if within 24 hour window
+            $timestamp = strtotime($entry['timestamp'] ?? '');
+            if ($timestamp < $cutoffTime) continue;
+            
+            $stats['total_events']++;
+            $type = $entry['type'] ?? '';
+            $success = $entry['success'] ?? true;
+            
+            // Count by type
+            switch ($type) {
+                case 'backup':
+                    if ($success) {
+                        $stats['backup_successes']++;
+                    } else {
+                        $stats['backup_failures']++;
+                        $stats['recent_errors'][] = [
+                            'timestamp' => $entry['timestamp'],
+                            'type' => 'Backup',
+                            'message' => $entry['message'] ?? 'Unknown error'
+                        ];
+                    }
+                    break;
+                    
+                case 'restore':
+                    if ($success) {
+                        $stats['restore_successes']++;
+                    } else {
+                        $stats['restore_failures']++;
+                        $stats['recent_errors'][] = [
+                            'timestamp' => $entry['timestamp'],
+                            'type' => 'Restore',
+                            'message' => $entry['message'] ?? 'Unknown error'
+                        ];
+                    }
+                    break;
+                    
+                case 'schedule_run':
+                case 'queue_cron_process':
+                    $stats['schedules_run']++;
+                    break;
+            }
+            
+            // Check message for pruning info
+            $message = $entry['message'] ?? '';
+            if (stripos($message, 'pruned') !== false || stripos($message, 'retention') !== false) {
+                // Try to extract count from message
+                if (preg_match('/(\d+)\s*(old\s+)?backup/i', $message, $matches)) {
+                    $stats['backups_pruned'] += (int)$matches[1];
+                }
+            }
+        }
+    }
+    
+    // Get current queue status
+    $queue = new BackBorkQueue();
+    $queueData = $queue->getQueue('root', true);
+    $stats['queue_pending'] = count($queueData['queued'] ?? []);
+    
+    // Count completed/failed from completed directory
+    $completedDir = BackBorkQueue::getCompletedDir();
+    if (is_dir($completedDir)) {
+        $completedFiles = glob($completedDir . '/*.json');
+        foreach ($completedFiles as $file) {
+            $job = json_decode(file_get_contents($file), true);
+            if ($job) {
+                if (($job['status'] ?? '') === 'failed') {
+                    $stats['queue_failed']++;
+                } else {
+                    $stats['queue_completed']++;
+                }
+            }
+        }
+    }
+    
+    // Sort errors by most recent first
+    usort($stats['recent_errors'], function($a, $b) {
+        return strtotime($b['timestamp']) - strtotime($a['timestamp']);
+    });
+    
+    return $stats;
 }

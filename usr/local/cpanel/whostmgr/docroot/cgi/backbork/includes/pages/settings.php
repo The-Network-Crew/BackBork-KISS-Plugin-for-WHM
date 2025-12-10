@@ -110,6 +110,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
             <label><input type="checkbox" id="notify-success" checked> Notify on Success</label>
             <label><input type="checkbox" id="notify-failure" checked> Notify on Failure</label>
             <label><input type="checkbox" id="notify-start"> Notify on Job Start</label>
+            <label><input type="checkbox" id="notify-daily-summary"> 📊 Daily Summary (midnight)</label>
         </div>
     </div>
 

@@ -124,7 +124,7 @@ if (!defined('BACKBORK_VERSION')) {
          FOOTER: Version info, project links, and copyright
     ================================================================ -->
     <div class="backbork-footer">
-        <div><code>v<?php echo BACKBORK_VERSION; ?></code> <strong>&bull; <a href="https://backbork.com" target="_blank">Open-source Disaster Recovery for WHM</a></strong></div>
+        <div><code>v<?php echo BACKBORK_VERSION; ?></code> <strong>&bull; <a href="https://backbork.com" target="_blank">Open-source Disaster Recovery</a> &bull; <a href="https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM" target="_blank">GitHub</a></strong></div>
         <div><strong>&copy; <a href="https://tnc.works" target="_blank">The Network Crew Pty Ltd</a> & <a href="https://velocityhost.com.au" target="_blank">Velocity Host Pty Ltd</a></strong> 💜</div>
     </div>
 </div>
