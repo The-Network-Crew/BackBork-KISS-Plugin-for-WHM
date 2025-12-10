@@ -23,9 +23,27 @@
  * @version See version.php (constant: BACKBORK_VERSION)
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
+
+// ============================================================================
+// ACL CHECK - Determine user permissions for conditional UI rendering
+// Root users see additional controls like "view as user" selector
+// ============================================================================
+$scheduleAcl = BackBorkBootstrap::getACL();  // Get ACL instance from Bootstrap
+$scheduleIsRoot = $scheduleAcl->isRoot();     // Check if current user is root
 ?>
+<!-- Schedule Panel: Manage automated backup schedules -->
 <div id="panel-schedule" class="backbork-panel">
-    <div class="backbork-card">
+    <!-- ================================================================
+         SCHEDULES LOCKED ALERT
+         Shown to resellers when root has enabled schedule_lock
+         Hidden by default, visibility controlled by JavaScript
+    ================================================================ -->
+    <div id="schedules-locked-alert" class="alert alert-warning" style="display: none;">
+        <strong>🔒 Schedules Locked</strong> — Schedule management has been disabled by the administrator.
+    </div>
+
+    <!-- Schedule Creation Form Card -->
+    <div class="backbork-card" id="schedule-create-card">
         <h3>Scheduled Backups</h3>
         
         <div class="form-row">
@@ -63,18 +81,27 @@
             </div>
         </div>
 
+        <!-- Account Selection: Choose which accounts to include in schedule -->
         <div class="form-group">
             <label>Select Accounts</label>
             <div class="account-list" id="schedule-account-list">
-                <div class="select-all-container">
+                <div class="select-all-container" style="display: flex; gap: 24px; flex-wrap: wrap;">
+                    <!-- All Accounts: Dynamic mode - includes all accessible accounts at runtime -->
+                    <label style="font-weight: 600; color: var(--primary);">
+                        <input type="checkbox" id="schedule-all-accounts"> 🌐 All Accounts (dynamic)
+                    </label>
+                    <!-- Select All Listed: Static mode - selects currently visible accounts -->
                     <label>
-                        <input type="checkbox" id="select-all-schedule"> Select All
+                        <input type="checkbox" id="select-all-schedule"> Select All Listed
                     </label>
                 </div>
                 <div id="schedule-accounts-container">
                     <div class="loading-spinner"></div> Loading accounts...
                 </div>
             </div>
+            <p id="all-accounts-hint" style="display: none; font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                💡 When "All Accounts" is enabled, the schedule will dynamically include all accounts accessible to you at runtime.
+            </p>
         </div>
 
         <button type="button" class="btn btn-primary" id="btn-create-schedule">
@@ -83,7 +110,18 @@
     </div>
 
     <div class="backbork-card">
-        <h3>Active Schedules</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="margin: 0;">Active Schedules</h3>
+            <?php if ($scheduleIsRoot): ?>
+            <!-- Root-only: Filter schedules by owner - allows viewing reseller schedules -->
+            <div class="form-group" style="margin: 0; min-width: 200px;">
+                <select id="schedule-view-user" style="margin: 0;">
+                    <option value="all">All Users</option>
+                    <!-- Additional users populated via JavaScript API call -->
+                </select>
+            </div>
+            <?php endif; ?>
+        </div>
         <div class="table-container">
             <table class="backbork-table" id="schedules-table">
                 <thead>
@@ -93,11 +131,12 @@
                         <th>Frequency</th>
                         <th>Retention</th>
                         <th>Next Run</th>
+                        <?php if ($scheduleIsRoot): ?><th>Owner</th><?php endif; ?>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="schedules-tbody">
-                    <tr><td colspan="6">Loading schedules...</td></tr>
+                    <tr><td colspan="<?php echo $scheduleIsRoot ? '7' : '6'; ?>">Loading schedules...</td></tr>
                 </tbody>
             </table>
         </div>

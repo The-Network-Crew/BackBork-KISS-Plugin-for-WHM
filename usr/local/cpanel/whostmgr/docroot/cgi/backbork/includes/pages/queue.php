@@ -24,20 +24,34 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 ?>
+<!-- Queue Panel: View pending jobs and processing status -->
 <div id="panel-queue" class="backbork-panel">
+    <!-- ================================================================
+         QUEUE HEADER ACTIONS
+         Root users can manually trigger queue processing
+         Resellers see informational message only
+    ================================================================ -->
     <div class="queue-header-actions">
         <?php if ($isRoot): ?>
+            <!-- Root-only: Manual queue processing trigger -->
             <button id="btn-process-queue" class="btn btn-process-queue">
                 <span class="btn-icon">▶</span> Process Queue Now
             </button>
             <span class="cron-hint">Automatically runs every 5 minutes via cron</span>
         <?php else: ?>
+            <!-- Reseller view: Informational message about cron processing -->
             <div class="cron-info-box">
                 <span class="info-icon">ℹ️</span>
                 Queue processing runs automatically every 5 minutes. Manual processing requires root access.
             </div>
         <?php endif; ?>
     </div>
+    
+    <!-- ================================================================
+         RUNNING JOBS TABLE
+         Shows currently executing backup/restore operations
+         Updated via JavaScript polling for real-time status
+    ================================================================ -->
     <div class="backbork-card">
         <h3>Running Jobs</h3>
         <div class="table-container">
@@ -52,6 +66,7 @@
                         <th>Progress</th>
                     </tr>
                 </thead>
+                <!-- Table body populated via JavaScript API call -->
                 <tbody id="running-jobs-tbody">
                     <tr><td colspan="6">Loading...</td></tr>
                 </tbody>
@@ -59,6 +74,11 @@
         </div>
     </div>
 
+    <!-- ================================================================
+         QUEUED JOBS TABLE
+         Shows pending jobs waiting for cron processing
+         Root can cancel queued jobs; resellers can only cancel their own
+    ================================================================ -->
     <div class="backbork-card">
         <h3>Queued Jobs</h3>
         <div class="table-container">
@@ -73,6 +93,7 @@
                         <th>Actions</th>
                     </tr>
                 </thead>
+                <!-- Table body populated via JavaScript API call -->
                 <tbody id="queue-tbody">
                     <tr><td colspan="6">Loading...</td></tr>
                 </tbody>

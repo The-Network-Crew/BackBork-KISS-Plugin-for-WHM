@@ -1,9 +1,21 @@
 <?php
 /**
  * BackBork KISS - Application Bootstrap
- * Handles initialization, class loading, and ACL verification
+ * 
+ * Central initialization handler for the BackBork WHM plugin.
+ * Responsible for loading all required classes, verifying user access,
+ * and providing utility methods for the application lifecycle.
+ * 
+ * Initialization Flow:
+ * 1. Load app classes (ACL, Config, Queue, Log, Notify)
+ * 2. Load engine classes (WHM API, Transport, Backup, Restore)
+ * 3. Initialize ACL and verify user permissions
+ * 4. Return success/failure for access control
+ * 
+ * Usage:
+ * - Web requests: BackBorkBootstrap::init()
+ * - CLI/Cron: BackBorkBootstrap::initCLI()
  *
-
  * BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  * Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
  * https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
@@ -26,98 +38,149 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
-// Prevent direct access
+// ============================================================================
+// SECURITY & ERROR HANDLING
+// ============================================================================
+
+// Prevent direct file access - must be loaded via index.php or similar
 if (!defined('BACKBORK_VERSION')) {
     die('Direct access not permitted');
 }
 
-// Error handling - log errors but don't display
-error_reporting(E_ALL);
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
+// Error handling configuration
+error_reporting(E_ALL);           // Catch all PHP errors
+ini_set('display_errors', 0);     // Don't display errors to user (security)
+ini_set('log_errors', 1);         // Log errors to PHP error log
 
-// Base path for the plugin
+// ============================================================================
+// PATH DEFINITIONS
+// ============================================================================
+
+// Define base path for the plugin (parent of app/ directory)
 define('BACKBORK_BASE_PATH', dirname(__DIR__));
 
-// Include WHM PHP library (handles headers automatically)
+// ============================================================================
+// WHM INTEGRATION
+// ============================================================================
+
+// Include cPanel's WHM PHP library for header/footer rendering
+// This automatically handles WHM's authentication and session
 require_once('/usr/local/cpanel/php/WHM.php');
 
 /**
  * Class BackBorkBootstrap
- * Handles application initialization and dependency loading
+ * 
+ * Static class handling application initialization and dependency management.
+ * All methods are static to allow easy access without instantiation.
  */
 class BackBorkBootstrap {
     
-    /** @var bool Whether the app has been initialized */
+    // ========================================================================
+    // STATIC PROPERTIES
+    // ========================================================================
+    
+    /** @var bool Tracks whether init() has already been called */
     private static $initialized = false;
     
-    /** @var BackBorkACL ACL instance */
+    /** @var BackBorkACL Singleton ACL instance for access control */
     private static $acl = null;
     
-    /** @var array Loaded class instances */
+    /** @var array Cache of instantiated class singletons */
     private static $instances = [];
     
+    // ========================================================================
+    // INITIALIZATION
+    // ========================================================================
+    
     /**
-     * Initialize the application
-     * Loads all required classes and verifies ACL
+     * Initialize the BackBork application
      * 
-     * @param bool $checkAcl Whether to perform ACL check (disable for CLI)
-     * @return bool
+     * Loads all required class files, initializes ACL, and optionally
+     * verifies user permissions. This must be called before using any
+     * BackBork functionality.
+     * 
+     * @param bool $checkAcl Whether to verify ACL permissions (false for CLI)
+     * @return bool True if initialization successful and user has access
      */
     public static function init($checkAcl = true) {
+        // Prevent double initialization
         if (self::$initialized) {
             return true;
         }
         
-        // Load app classes
-        require_once(BACKBORK_BASE_PATH . '/app/ACL.php');
-        require_once(BACKBORK_BASE_PATH . '/app/Config.php');
-        require_once(BACKBORK_BASE_PATH . '/app/Notify.php');
-        require_once(BACKBORK_BASE_PATH . '/app/Queue.php');
-        require_once(BACKBORK_BASE_PATH . '/app/Log.php');
+        // === LOAD APPLICATION CLASSES ===
+        // Core app functionality
+        require_once(BACKBORK_BASE_PATH . '/app/ACL.php');        // Access control
+        require_once(BACKBORK_BASE_PATH . '/app/Config.php');     // Configuration management
+        require_once(BACKBORK_BASE_PATH . '/app/Notify.php');     // Email/Slack notifications
+        require_once(BACKBORK_BASE_PATH . '/app/Queue.php');      // Job queue management
+        require_once(BACKBORK_BASE_PATH . '/app/Log.php');        // Operation logging
         
-        // Load engine classes
-        require_once(BACKBORK_BASE_PATH . '/engine/whmapi1/Accounts.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/whmapi1/System.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/transport/TransportInterface.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/transport/Native.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/transport/Local.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/destinations/Parser.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/destinations/Validator.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/backup/Pkgacct.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/backup/BackupManager.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/restore/Retrieval.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/restore/RestoreManager.php');
-        require_once(BACKBORK_BASE_PATH . '/engine/queue/QueueProcessor.php');
+        // === LOAD ENGINE CLASSES ===
+        // WHM API wrappers
+        require_once(BACKBORK_BASE_PATH . '/engine/whmapi1/Accounts.php');   // Account listing/ownership
+        require_once(BACKBORK_BASE_PATH . '/engine/whmapi1/System.php');     // System info (DB version)
         
-        // Initialize ACL
+        // Transport layer (file transfer)
+        require_once(BACKBORK_BASE_PATH . '/engine/transport/TransportInterface.php');  // Interface definition
+        require_once(BACKBORK_BASE_PATH . '/engine/transport/Native.php');              // WHM native destinations
+        require_once(BACKBORK_BASE_PATH . '/engine/transport/Local.php');               // Local filesystem
+        
+        // Destination handling
+        require_once(BACKBORK_BASE_PATH . '/engine/destinations/Parser.php');     // Parse WHM destinations
+        require_once(BACKBORK_BASE_PATH . '/engine/destinations/Validator.php');  // Validate destinations
+        
+        // Backup engine
+        require_once(BACKBORK_BASE_PATH . '/engine/backup/Pkgacct.php');          // pkgacct wrapper
+        require_once(BACKBORK_BASE_PATH . '/engine/backup/BackupManager.php');    // Backup orchestration
+        
+        // Restore engine
+        require_once(BACKBORK_BASE_PATH . '/engine/restore/Retrieval.php');       // Download backups
+        require_once(BACKBORK_BASE_PATH . '/engine/restore/RestoreManager.php');  // Restore orchestration
+        
+        // Queue processing
+        require_once(BACKBORK_BASE_PATH . '/engine/queue/QueueProcessor.php');    // Cron job processor
+        
+        // === INITIALIZE ACL ===
         self::$acl = new BackBorkACL();
         
-        // Verify access if required
+        // === VERIFY ACCESS (optional) ===
+        // For web requests, verify user has list-accts permission
         if ($checkAcl && !self::$acl->hasAccess('list-accts')) {
-            return false;
+            return false;  // Access denied
         }
         
+        // Mark as initialized
         self::$initialized = true;
         return true;
     }
     
     /**
      * Initialize for CLI (cron) usage
-     * Skips ACL check and WHM header requirements
      * 
-     * @return bool
+     * Skips ACL checks since cron runs as root.
+     * Use this instead of init() in cron/handler.php.
+     * 
+     * @return bool Always true after loading classes
      */
     public static function initCLI() {
         return self::init(false);
     }
     
+    // ========================================================================
+    // ACCESSORS
+    // ========================================================================
+    
     /**
-     * Get ACL instance
+     * Get the ACL instance
      * 
-     * @return BackBorkACL
+     * Initializes if not already done. Used throughout the app
+     * for permission checking and user identification.
+     * 
+     * @return BackBorkACL ACL handler instance
      */
     public static function getACL() {
+        // Lazy initialization if needed
         if (!self::$acl) {
             self::init(false);
         }
@@ -125,9 +188,11 @@ class BackBorkBootstrap {
     }
     
     /**
-     * Get current user
+     * Get current authenticated user's username
      * 
-     * @return string
+     * Convenience method wrapping ACL::getCurrentUser()
+     * 
+     * @return string Username (e.g., 'root' or reseller name)
      */
     public static function getCurrentUser() {
         return self::getACL()->getCurrentUser();
@@ -136,7 +201,9 @@ class BackBorkBootstrap {
     /**
      * Check if current user is root
      * 
-     * @return bool
+     * Convenience method wrapping ACL::isRoot()
+     * 
+     * @return bool True if user is root
      */
     public static function isRoot() {
         return self::getACL()->isRoot();
@@ -145,18 +212,30 @@ class BackBorkBootstrap {
     /**
      * Get or create a singleton instance of a class
      * 
-     * @param string $className Class name
-     * @return object
+     * Useful for classes that should only be instantiated once
+     * (e.g., database connections, managers).
+     * 
+     * @param string $className Fully qualified class name
+     * @return object Instance of the requested class
      */
     public static function getInstance($className) {
+        // Check cache first
         if (!isset(self::$instances[$className])) {
+            // Create and cache new instance
             self::$instances[$className] = new $className();
         }
         return self::$instances[$className];
     }
     
+    // ========================================================================
+    // UTILITY METHODS
+    // ========================================================================
+    
     /**
-     * Display access denied page and exit
+     * Display access denied page and terminate
+     * 
+     * Shows a WHM-styled error page when user lacks permission.
+     * Exits after displaying the page.
      */
     public static function accessDenied() {
         WHM::header('BackBork KISS - Access Denied', 0, 0);
@@ -166,18 +245,20 @@ class BackBorkBootstrap {
     }
     
     /**
-     * Check if running from CLI
+     * Check if running from command line (CLI)
      * 
-     * @return bool
+     * Used to detect cron execution vs web request.
+     * 
+     * @return bool True if running from CLI (e.g., cron)
      */
     public static function isCLI() {
         return php_sapi_name() === 'cli' || !isset($_SERVER['REQUEST_METHOD']);
     }
     
     /**
-     * Get base path
+     * Get the plugin base path
      * 
-     * @return string
+     * @return string Absolute path to plugin root directory
      */
     public static function getBasePath() {
         return BACKBORK_BASE_PATH;

@@ -25,16 +25,24 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * Parser for WHM backup destination configurations.
+ * Reads destination settings from WHM's backup configuration files.
+ * Supports both modern destination files and legacy configuration formats.
+ */
 class BackBorkDestinationsParser {
     
-    // WHM stores backup destinations in these locations
+    // Directory containing individual destination configuration files
     const TRANSPORT_CONFIG_DIR = '/var/cpanel/backups/destinations';
+    
+    // Legacy backup configuration file path
     const BACKUP_CONFIG_FILE = '/var/cpanel/backups/config';
     
     /**
-     * Get available backup destinations from WHM configuration
+     * Get all available backup destinations from WHM configuration.
+     * Combines destinations from config directory, legacy config, and ensures local option.
      * 
-     * @return array
+     * @return array Array with 'destinations' key containing list of destination configs
      */
     public function getAvailableDestinations() {
         $destinations = [];
@@ -43,6 +51,7 @@ class BackBorkDestinationsParser {
         if (is_dir(self::TRANSPORT_CONFIG_DIR)) {
             $files = glob(self::TRANSPORT_CONFIG_DIR . '/*');
             
+            // Parse each destination file
             foreach ($files as $file) {
                 if (is_file($file)) {
                     $dest = $this->parseDestinationFile($file);
@@ -53,11 +62,11 @@ class BackBorkDestinationsParser {
             }
         }
         
-        // Also check for legacy configuration format
+        // Also check for legacy FTP/SFTP configuration format
         $legacyDestinations = $this->parseLegacyConfig();
         $destinations = array_merge($destinations, $legacyDestinations);
         
-        // Always include local option
+        // Always include local storage option
         $hasLocal = false;
         foreach ($destinations as $dest) {
             if ($dest['id'] === 'local' || $dest['type'] === 'Local') {
@@ -66,6 +75,7 @@ class BackBorkDestinationsParser {
             }
         }
         
+        // Add local storage if not already present
         if (!$hasLocal) {
             array_unshift($destinations, [
                 'id' => 'local',
@@ -80,23 +90,26 @@ class BackBorkDestinationsParser {
     }
     
     /**
-     * Parse a destination configuration file
+     * Parse a single destination configuration file.
+     * Supports both YAML-like and key=value formats.
      * 
-     * @param string $file File path
-     * @return array|null
+     * @param string $file Absolute path to destination config file
+     * @return array|null Parsed destination config or null if invalid
      */
     public function parseDestinationFile($file) {
         $content = file_get_contents($file);
         $config = [];
         
-        // Parse YAML-like or key=value format
+        // Parse configuration lines
         $lines = explode("\n", $content);
         
         foreach ($lines as $line) {
             $line = trim($line);
+            
+            // Skip empty lines and comments
             if (empty($line) || strpos($line, '#') === 0) continue;
             
-            // Handle YAML format
+            // Handle YAML format: key: value
             if (preg_match('/^(\w+):\s*(.*)$/', $line, $matches)) {
                 $config[strtolower($matches[1])] = trim($matches[2], '"\'');
             }
@@ -106,10 +119,12 @@ class BackBorkDestinationsParser {
             }
         }
         
+        // Return null if no valid config found
         if (empty($config)) {
             return null;
         }
         
+        // Build destination array with defaults
         $name = basename($file);
         $type = isset($config['type']) ? $config['type'] : 'Unknown';
         
@@ -127,13 +142,15 @@ class BackBorkDestinationsParser {
     }
     
     /**
-     * Parse legacy backup configuration
+     * Parse legacy backup configuration file for FTP/SFTP destinations.
+     * Handles older WHM backup config format.
      * 
-     * @return array
+     * @return array List of parsed legacy destinations
      */
     private function parseLegacyConfig() {
         $destinations = [];
         
+        // Skip if legacy config doesn't exist
         if (!file_exists(self::BACKUP_CONFIG_FILE)) {
             return $destinations;
         }
@@ -141,7 +158,7 @@ class BackBorkDestinationsParser {
         $content = file_get_contents(self::BACKUP_CONFIG_FILE);
         $config = [];
         
-        // Parse the config file
+        // Parse the legacy config file (YAML-like format)
         $lines = explode("\n", $content);
         foreach ($lines as $line) {
             $line = trim($line);
@@ -152,7 +169,7 @@ class BackBorkDestinationsParser {
             }
         }
         
-        // Check for FTP/SFTP configuration in legacy format
+        // Check for FTP configuration in legacy format
         if (!empty($config['ftphost'])) {
             $destinations[] = [
                 'id' => 'legacy_ftp',
@@ -170,14 +187,16 @@ class BackBorkDestinationsParser {
     }
     
     /**
-     * Get destination by ID
+     * Get a destination by its ID.
+     * Also matches by name for flexibility.
      * 
-     * @param string $id Destination ID
-     * @return array|null
+     * @param string $id Destination ID or name
+     * @return array|null Destination config or null if not found
      */
     public function getDestinationById($id) {
         $all = $this->getAvailableDestinations();
         
+        // Search by ID or name
         foreach ($all['destinations'] as $dest) {
             if ($dest['id'] === $id || $dest['name'] === $id) {
                 return $dest;
@@ -188,10 +207,11 @@ class BackBorkDestinationsParser {
     }
     
     /**
-     * Get destination name by ID
+     * Get the display name for a destination.
+     * Returns ID if destination not found.
      * 
      * @param string $id Destination ID
-     * @return string
+     * @return string Destination name or ID
      */
     public function getDestinationName($id) {
         $dest = $this->getDestinationById($id);
@@ -199,19 +219,20 @@ class BackBorkDestinationsParser {
     }
     
     /**
-     * Check if a destination exists
+     * Check if a destination exists.
      * 
      * @param string $id Destination ID
-     * @return bool
+     * @return bool True if destination exists
      */
     public function destinationExists($id) {
         return $this->getDestinationById($id) !== null;
     }
     
     /**
-     * Get destinations directory path
+     * Get the WHM destinations directory path.
+     * Static method for external access to config location.
      * 
-     * @return string
+     * @return string Path to destinations directory
      */
     public static function getDestinationsDir() {
         return self::TRANSPORT_CONFIG_DIR;

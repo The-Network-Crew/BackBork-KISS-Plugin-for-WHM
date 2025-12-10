@@ -23,8 +23,42 @@
  * @version See version.php (constant: BACKBORK_VERSION)
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
+
+// ============================================================================
+// ACL CHECK - Determine user permissions for conditional UI rendering
+// Root users see Global Settings card with schedule lock toggle
+// ============================================================================
+$settingsAcl = BackBorkBootstrap::getACL();  // Get ACL instance from Bootstrap
+$settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
 ?>
+<!-- Settings Panel: User preferences and global configuration -->
 <div id="panel-settings" class="backbork-panel">
+    <?php if ($settingsIsRoot): ?>
+    <!-- ================================================================
+         ROOT-ONLY: Global Settings Card
+         These controls are only visible to root user and affect all users
+    ================================================================ -->
+    <div class="backbork-card">
+        <h3>🔐 Global Settings (Root Only)</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            These settings apply globally to all users including resellers.
+        </p>
+        
+        <div class="checkbox-group">
+            <!-- Schedule Lock: When enabled, resellers cannot create/edit/delete schedules -->
+            <label>
+                <input type="checkbox" id="schedules-locked"> 
+                <strong>🔒 Lock Schedules</strong> — Stop all resellers access!
+            </label>
+            <!-- Debug Mode: Enables verbose logging for troubleshooting -->
+            <label>
+                <input type="checkbox" id="debug-mode"> 
+                <strong>🐛 Debug Mode</strong> — Verbose to WHM PHP error_log!
+            </label>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <div class="backbork-card">
         <h3>Cron Status</h3>
         <div id="cron-status-container">
@@ -209,16 +243,6 @@
             <label><input type="checkbox" id="skip-linkednodes"> Linked Nodes</label>
             <label><input type="checkbox" id="skip-integrationlinks"> Integration Links</label>
         </div>
-    </div>
-
-    <div class="backbork-card">
-        <h3>Advanced Settings</h3>
-        <div class="checkbox-group">
-            <label><input type="checkbox" id="debug-mode"> Enable Debug Mode (verbose logging to error_log)</label>
-        </div>
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
-            When enabled, detailed debug information will be written to the PHP error log for troubleshooting.
-        </p>
     </div>
 
     <div class="backbork-card" style="padding: 16px 20px;">

@@ -25,39 +25,51 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * Backup file retrieval service.
+ * Downloads backup files from remote destinations or locates local backups.
+ * Handles verification and cleanup of retrieved files.
+ */
 class BackBorkRetrieval {
     
+    // Temporary directory for staging downloaded backups
     const TEMP_DIR = '/home/backbork_tmp';
     
-    /** @var BackBorkDestinationsParser */
+    /** @var BackBorkDestinationsParser Parses WHM transport destinations */
     private $destinations;
     
     /**
-     * Constructor
+     * Constructor - Initialize destination parser.
      */
     public function __construct() {
         $this->destinations = new BackBorkDestinationsParser();
     }
     
     /**
-     * Retrieve backup file from destination
+     * Retrieve backup file from a destination.
+     * For local destinations, returns path directly.
+     * For remote destinations, downloads file to temp directory.
      * 
-     * @param string $destinationId Destination ID
+     * @param string $destinationId Destination ID from WHM transport config
      * @param string $backupFile Backup file path at destination
-     * @param string $localPath Local path to save to (optional)
-     * @return array Result with local file path
+     * @param string $localPath Optional specific local path to save to
+     * @return array Result with success status and local_path
      */
     public function retrieveBackup($destinationId, $backupFile, $localPath = null) {
+        // Look up destination configuration by ID
         $destination = $this->destinations->getDestinationById($destinationId);
         
+        // Validate destination exists
         if (!$destination) {
             return ['success' => false, 'message' => 'Destination not found'];
         }
         
-        // For local destinations, just return the path
+        // For local destinations, just verify and return the path
         if (strtolower($destination['type']) === 'local') {
+            // Construct full path by combining destination path and backup file
             $fullPath = rtrim($destination['path'], '/') . '/' . ltrim($backupFile, '/');
             
+            // Verify file exists
             if (!file_exists($fullPath)) {
                 return ['success' => false, 'message' => 'Backup file not found: ' . $fullPath];
             }
@@ -69,21 +81,27 @@ class BackBorkRetrieval {
             ];
         }
         
-        // For remote destinations, download the file
+        // For remote destinations, download the file to temp directory
         $tempDir = self::TEMP_DIR;
+        
+        // Ensure temp directory exists with secure permissions
         if (!is_dir($tempDir)) {
             mkdir($tempDir, 0700, true);
         }
         
+        // Use specified local path or generate one in temp directory
         if (!$localPath) {
             $localPath = $tempDir . '/' . basename($backupFile);
         }
         
+        // Get appropriate transport handler for this destination type
         $validator = new BackBorkDestinationsValidator();
         $transport = $validator->getTransportForDestination($destination);
         
+        // Download file from remote destination
         $result = $transport->download($backupFile, $localPath, $destination);
         
+        // Add local path and size to result on success
         if ($result['success']) {
             $result['local_path'] = $localPath;
             $result['size'] = file_exists($localPath) ? filesize($localPath) : 0;
@@ -93,41 +111,46 @@ class BackBorkRetrieval {
     }
     
     /**
-     * List available backups from destination
+     * List available backups from a destination.
+     * Parses filenames to extract account names and timestamps.
      * 
-     * @param string $destinationId Destination ID
-     * @param string $accountFilter Optional account filter
-     * @return array
+     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $accountFilter Optional account filter to narrow results
+     * @return array Result with success status and list of backups
      */
     public function listAvailableBackups($destinationId, $accountFilter = null) {
+        // Look up destination configuration by ID
         $destination = $this->destinations->getDestinationById($destinationId);
         
+        // Validate destination exists
         if (!$destination) {
             return ['success' => false, 'backups' => [], 'message' => 'Destination not found'];
         }
         
+        // Get appropriate transport handler for this destination type
         $validator = new BackBorkDestinationsValidator();
         $transport = $validator->getTransportForDestination($destination);
         
-        // Get listing
+        // List files at destination (filter by account if provided)
         $path = $accountFilter ? $accountFilter : '';
         $files = $transport->listFiles($path, $destination);
         
-        // Parse backup files
+        // Parse backup files and extract metadata
         $backups = [];
         foreach ($files as $file) {
             $filename = $file['file'];
             
-            // Skip non-backup files
+            // Skip non-backup files (must match cpmove-account pattern)
             if (!preg_match('/cpmove-([a-z0-9_]+)/i', $filename, $matches)) {
                 continue;
             }
             
             $account = $matches[1];
             
-            // Parse timestamp if present
+            // Parse timestamp from filename if present (e.g., _2024-01-15_14-30-00)
             $timestamp = null;
             if (preg_match('/_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/', $filename, $tsMatch)) {
+                // Convert filename timestamp to readable format
                 $timestamp = str_replace(['_', '-'], [' ', ':'], $tsMatch[1]);
                 $timestamp = substr_replace($timestamp, '-', 10, 1);
                 $timestamp = substr_replace($timestamp, '-', 7, 1);
@@ -143,7 +166,7 @@ class BackBorkRetrieval {
             ];
         }
         
-        // Sort by date descending
+        // Sort by date descending (most recent first)
         usort($backups, function($a, $b) {
             return strcmp($b['date'], $a['date']);
         });
@@ -152,11 +175,13 @@ class BackBorkRetrieval {
     }
     
     /**
-     * Find local WHM backup location
+     * Find local WHM backup directory.
+     * Checks common cPanel backup locations.
      * 
-     * @return string|null
+     * @return string|null Path to backup directory or null if not found
      */
     public function findLocalBackupDirectory() {
+        // Common cPanel backup locations in order of preference
         $possiblePaths = [
             '/backup',
             '/backup/cpbackup',
@@ -166,6 +191,7 @@ class BackBorkRetrieval {
             '/home/backup'
         ];
         
+        // Return first existing directory
         foreach ($possiblePaths as $path) {
             if (is_dir($path)) {
                 return $path;
@@ -176,14 +202,16 @@ class BackBorkRetrieval {
     }
     
     /**
-     * Find backups from WHM's standard backup locations
+     * Find backups from WHM's standard backup locations.
+     * Searches daily, weekly, and monthly backup directories.
      * 
-     * @param string $account Account username
-     * @return array
+     * @param string $account Account username to search for
+     * @return array List of backup files with metadata
      */
     public function findCpanelBackups($account) {
         $backups = [];
         
+        // Standard cPanel backup locations
         $locations = [
             '/backup/cpbackup/daily',
             '/backup/cpbackup/weekly',
@@ -194,11 +222,13 @@ class BackBorkRetrieval {
         ];
         
         foreach ($locations as $location) {
+            // Skip if directory doesn't exist
             if (!is_dir($location)) continue;
             
-            // Check for account directory
+            // Check for account-specific subdirectory
             $accountDir = $location . '/' . $account;
             if (is_dir($accountDir)) {
+                // Find all tar.gz files in account directory
                 $files = glob($accountDir . '/*.tar.gz');
                 foreach ($files as $file) {
                     $backups[] = [
@@ -207,13 +237,13 @@ class BackBorkRetrieval {
                         'account' => $account,
                         'size' => filesize($file),
                         'date' => date('Y-m-d H:i:s', filemtime($file)),
-                        'source' => basename($location),
+                        'source' => basename($location),  // e.g., 'daily', 'weekly'
                         'destination' => 'local'
                     ];
                 }
             }
             
-            // Check for cpmove files directly
+            // Also check for cpmove files directly in location directory
             $pattern = $location . '/cpmove-' . $account . '*';
             $files = glob($pattern);
             foreach ($files as $file) {
@@ -231,7 +261,7 @@ class BackBorkRetrieval {
             }
         }
         
-        // Sort by date descending
+        // Sort by date descending (most recent first)
         usort($backups, function($a, $b) {
             return strcmp($b['date'], $a['date']);
         });
@@ -240,42 +270,47 @@ class BackBorkRetrieval {
     }
     
     /**
-     * Verify retrieved backup file
+     * Verify retrieved backup file integrity.
+     * Checks file exists, has correct extension, and is a valid tar.gz archive.
      * 
-     * @param string $localPath Local path to backup file
-     * @return array
+     * @param string $localPath Absolute path to backup file
+     * @return array Validation result with 'valid' flag and message
      */
     public function verifyBackupFile($localPath) {
+        // Check file exists
         if (!file_exists($localPath)) {
             return ['valid' => false, 'message' => 'File not found'];
         }
         
-        // Check file extension
+        // Check file extension (must be .tar.gz or .tgz)
         if (!preg_match('/\.(tar\.gz|tgz)$/i', $localPath)) {
             return ['valid' => false, 'message' => 'Invalid file format - expected .tar.gz'];
         }
         
-        // Check if it's a valid tar.gz
+        // Verify it's a valid tar.gz archive (try to list contents)
         $output = [];
         $returnCode = 0;
         exec('tar -tzf ' . escapeshellarg($localPath) . ' > /dev/null 2>&1', $output, $returnCode);
         
+        // Non-zero return code indicates corrupt or invalid archive
         if ($returnCode !== 0) {
             return ['valid' => false, 'message' => 'File appears to be corrupted'];
         }
         
-        // Check for expected cpmove structure
+        // Check for expected cpmove structure in archive
         $output = [];
         exec('tar -tzf ' . escapeshellarg($localPath) . ' 2>/dev/null | head -20', $output);
         
         $hasCpmoveDir = false;
         $hasHomedir = false;
         
+        // Look for cpmove directory or homedir in archive listing
         foreach ($output as $line) {
             if (strpos($line, 'cpmove-') === 0) $hasCpmoveDir = true;
             if (strpos($line, 'homedir') !== false) $hasHomedir = true;
         }
         
+        // Must have either cpmove directory or homedir to be valid WHM backup
         if (!$hasCpmoveDir && !$hasHomedir) {
             return ['valid' => false, 'message' => 'Not a valid WHM backup format'];
         }
@@ -288,23 +323,29 @@ class BackBorkRetrieval {
     }
     
     /**
-     * Clean up temporary downloaded files
+     * Clean up old temporary downloaded files.
+     * Removes files older than specified hours to free disk space.
      * 
-     * @param int $olderThanHours Delete files older than this many hours
+     * @param int $olderThanHours Delete files older than this many hours (default 24)
      * @return int Number of files deleted
      */
     public function cleanupTempFiles($olderThanHours = 24) {
         $tempDir = self::TEMP_DIR;
         
+        // Skip if temp directory doesn't exist
         if (!is_dir($tempDir)) {
             return 0;
         }
         
         $deleted = 0;
+        
+        // Calculate cutoff timestamp
         $cutoff = time() - ($olderThanHours * 3600);
         
+        // Get all files in temp directory
         $files = glob($tempDir . '/*');
         
+        // Delete files older than cutoff
         foreach ($files as $file) {
             if (is_file($file) && filemtime($file) < $cutoff) {
                 if (unlink($file)) {

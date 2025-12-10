@@ -25,39 +25,48 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * WHM API wrapper for account-related operations.
+ * Provides methods to list, query, and verify cPanel accounts.
+ * Handles root vs reseller access restrictions.
+ */
 class BackBorkWhmApiAccounts {
     
+    // Path to WHM API command-line tool
     const WHMAPI_BIN = '/usr/local/cpanel/bin/whmapi1';
     
     /**
-     * Get list of accounts accessible by a user
-     * Root can access all, resellers only their own
+     * Get list of accounts accessible by a specific user.
+     * Root users see all accounts; resellers only see accounts they own.
      * 
-     * @param string $user Username
-     * @param bool $isRoot Whether user is root
-     * @return array
+     * @param string $user Username requesting the list
+     * @param bool $isRoot Whether user is root (full access)
+     * @return array List of account info arrays
      */
     public function getAccessibleAccounts($user, $isRoot) {
         $accounts = [];
         
-        // Build command
+        // Build whmapi1 listaccts command
         $command = self::WHMAPI_BIN . ' listaccts --output=json';
         
+        // For non-root users (resellers), filter by owner
         if (!$isRoot) {
-            // For resellers, filter by owner
             $command .= ' searchtype=owner search=' . escapeshellarg($user);
         }
         
+        // Execute API call
         $output = shell_exec($command);
         $data = json_decode($output, true);
         
+        // Parse account list from API response
         if (isset($data['data']['acct']) && is_array($data['data']['acct'])) {
             foreach ($data['data']['acct'] as $acct) {
-                // Double-check ownership for resellers
+                // Double-check ownership for resellers (belt and suspenders)
                 if (!$isRoot && isset($acct['owner']) && $acct['owner'] !== $user) {
                     continue;
                 }
                 
+                // Build normalized account info array
                 $accounts[] = [
                     'user' => $acct['user'],
                     'domain' => isset($acct['domain']) ? $acct['domain'] : '',
@@ -74,16 +83,19 @@ class BackBorkWhmApiAccounts {
     }
     
     /**
-     * Get account summary for a specific account
+     * Get detailed summary for a specific account.
+     * Returns full account information from WHM.
      * 
      * @param string $account Account username
-     * @return array|null
+     * @return array|null Account info or null if not found
      */
     public function getAccountSummary($account) {
+        // Call accountsummary API
         $command = self::WHMAPI_BIN . ' accountsummary user=' . escapeshellarg($account) . ' --output=json';
         $output = shell_exec($command);
         $data = json_decode($output, true);
         
+        // Return first account result if found
         if (isset($data['data']['acct'][0])) {
             return $data['data']['acct'][0];
         }
@@ -92,11 +104,12 @@ class BackBorkWhmApiAccounts {
     }
     
     /**
-     * Check if an account is owned by a specific user
+     * Check if an account is owned by a specific user.
+     * Used for reseller permission verification.
      * 
-     * @param string $account Account username
-     * @param string $owner Owner username
-     * @return bool
+     * @param string $account Account username to check
+     * @param string $owner Expected owner username
+     * @return bool True if account is owned by specified user
      */
     public function isAccountOwnedBy($account, $owner) {
         $summary = $this->getAccountSummary($account);
@@ -109,10 +122,10 @@ class BackBorkWhmApiAccounts {
     }
     
     /**
-     * Get account owner
+     * Get the owner of an account.
      * 
      * @param string $account Account username
-     * @return string|null
+     * @return string|null Owner username or null if not found
      */
     public function getAccountOwner($account) {
         $summary = $this->getAccountSummary($account);
@@ -120,23 +133,24 @@ class BackBorkWhmApiAccounts {
     }
     
     /**
-     * Check if account exists
+     * Check if an account exists on the server.
      * 
      * @param string $account Account username
-     * @return bool
+     * @return bool True if account exists
      */
     public function accountExists($account) {
         return $this->getAccountSummary($account) !== null;
     }
     
     /**
-     * Get account home directory
+     * Get the home directory path for an account.
      * 
      * @param string $account Account username
-     * @return string|null
+     * @return string|null Home directory path or null if not found
      */
     public function getAccountHomeDir($account) {
         $summary = $this->getAccountSummary($account);
+        // Fall back to standard /home/username if not specified
         return $summary ? ($summary['homedir'] ?? '/home/' . $account) : null;
     }
 }

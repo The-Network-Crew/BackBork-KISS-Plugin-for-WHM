@@ -25,41 +25,48 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * Validator and tester for backup destinations.
+ * Validates configuration, tests connectivity, and provides transport handlers.
+ */
 class BackBorkDestinationsValidator {
     
-    /** @var BackBorkDestinationsParser */
+    /** @var BackBorkDestinationsParser Configuration parser instance */
     private $parser;
     
     /**
-     * Constructor
+     * Constructor - Initialize parser.
      */
     public function __construct() {
         $this->parser = new BackBorkDestinationsParser();
     }
     
     /**
-     * Test destination connection
+     * Test connectivity to a destination by ID.
+     * Loads destination config and runs connection test.
      * 
      * @param string $id Destination ID
-     * @return array
+     * @return array Result with success status and message
      */
     public function testDestination($id) {
+        // Look up destination configuration
         $dest = $this->parser->getDestinationById($id);
         
         if (!$dest) {
             return ['success' => false, 'message' => 'Destination not found'];
         }
         
-        // Get appropriate transport and test
+        // Get appropriate transport handler and test connection
         $transport = $this->getTransportForDestination($dest);
         return $transport->testConnection($dest);
     }
     
     /**
-     * Test destination by configuration array
+     * Test connectivity using a destination configuration array.
+     * For testing destinations not yet saved.
      * 
-     * @param array $dest Destination configuration
-     * @return array
+     * @param array $dest Destination configuration array
+     * @return array Result with success status and message
      */
     public function testDestinationConfig($dest) {
         $transport = $this->getTransportForDestination($dest);
@@ -67,15 +74,16 @@ class BackBorkDestinationsValidator {
     }
     
     /**
-     * Validate destination configuration
+     * Validate destination configuration completeness and correctness.
+     * Checks required fields and type-specific requirements.
      * 
-     * @param array $dest Destination configuration
-     * @return array Validation result
+     * @param array $dest Destination configuration array
+     * @return array Validation result with 'valid' flag and 'errors' array
      */
     public function validateDestination($dest) {
         $errors = [];
         
-        // Required fields
+        // Check required fields
         if (empty($dest['id'])) {
             $errors[] = 'Destination ID is required';
         }
@@ -87,6 +95,7 @@ class BackBorkDestinationsValidator {
         // Type-specific validation
         $type = strtolower($dest['type'] ?? '');
         
+        // SFTP/FTP require host and username
         if ($type === 'sftp' || $type === 'ftp') {
             if (empty($dest['host'])) {
                 $errors[] = 'Host is required for SFTP/FTP destinations';
@@ -96,6 +105,7 @@ class BackBorkDestinationsValidator {
                 $errors[] = 'Username is required for SFTP/FTP destinations';
             }
             
+            // Validate port range if specified
             if (!empty($dest['port'])) {
                 $port = (int)$dest['port'];
                 if ($port < 1 || $port > 65535) {
@@ -104,6 +114,7 @@ class BackBorkDestinationsValidator {
             }
         }
         
+        // Local destinations require a valid path
         if ($type === 'local') {
             if (empty($dest['path'])) {
                 $errors[] = 'Path is required for local destinations';
@@ -119,27 +130,29 @@ class BackBorkDestinationsValidator {
     }
     
     /**
-     * Get the appropriate transport handler for a destination
+     * Get the appropriate transport handler for a destination.
+     * Returns Local or Native transport based on destination type.
      * 
      * @param array $dest Destination configuration
-     * @return BackBorkTransportInterface
+     * @return BackBorkTransportInterface Transport handler instance
      */
     public function getTransportForDestination($dest) {
         $type = strtolower($dest['type'] ?? 'local');
         
+        // Local destinations use local filesystem transport
         if ($type === 'local') {
             return new BackBorkTransportLocal();
         }
         
-        // SFTP and FTP use the native WHM transport
+        // SFTP and FTP use WHM's native cpbackup_transport
         return new BackBorkTransportNative();
     }
     
     /**
-     * Check if destination is enabled
+     * Check if a destination is enabled.
      * 
      * @param string $id Destination ID
-     * @return bool
+     * @return bool True if destination exists and is enabled
      */
     public function isDestinationEnabled($id) {
         $dest = $this->parser->getDestinationById($id);
@@ -152,24 +165,28 @@ class BackBorkDestinationsValidator {
     }
     
     /**
-     * Check disk space at destination (for local only)
+     * Check available disk space at local destination.
+     * Only works for local type destinations.
      * 
      * @param string $id Destination ID
-     * @return array|null
+     * @return array|null Space info or null if not local
      */
     public function checkDestinationSpace($id) {
         $dest = $this->parser->getDestinationById($id);
         
+        // Only applicable to local destinations
         if (!$dest || strtolower($dest['type']) !== 'local') {
             return null;
         }
         
         $path = $dest['path'] ?? '/backup';
         
+        // Verify path exists
         if (!is_dir($path)) {
             return null;
         }
         
+        // Get disk space statistics
         $free = disk_free_space($path);
         $total = disk_total_space($path);
         
@@ -184,11 +201,12 @@ class BackBorkDestinationsValidator {
     }
     
     /**
-     * Verify backup file integrity at destination
+     * Verify backup file integrity at a destination.
+     * For local destinations, checks tar.gz validity.
      * 
      * @param string $destinationId Destination ID
-     * @param string $filePath File path at destination
-     * @return array
+     * @param string $filePath Path to backup file at destination
+     * @return array Result with success status and message
      */
     public function verifyBackupIntegrity($destinationId, $filePath) {
         $dest = $this->parser->getDestinationById($destinationId);
@@ -197,15 +215,17 @@ class BackBorkDestinationsValidator {
             return ['success' => false, 'message' => 'Destination not found'];
         }
         
-        // For local destinations, we can verify directly
+        // For local destinations, verify file directly
         if (strtolower($dest['type']) === 'local') {
+            // Build full path
             $fullPath = rtrim($dest['path'], '/') . '/' . ltrim($filePath, '/');
             
+            // Check file exists
             if (!file_exists($fullPath)) {
                 return ['success' => false, 'message' => 'File not found'];
             }
             
-            // Try to verify it's a valid tar.gz
+            // Try to verify it's a valid tar.gz by listing contents
             $output = [];
             $returnCode = 0;
             exec('tar -tzf ' . escapeshellarg($fullPath) . ' > /dev/null 2>&1', $output, $returnCode);
@@ -217,15 +237,15 @@ class BackBorkDestinationsValidator {
             return ['success' => false, 'message' => 'Backup file appears to be corrupted'];
         }
         
-        // For remote destinations, we'd need to download or use SSH
+        // Remote verification would require downloading file
         return ['success' => true, 'message' => 'Remote verification not yet implemented'];
     }
     
     /**
-     * Format file size
+     * Format file size in human-readable units.
      * 
      * @param int $bytes Size in bytes
-     * @return string Formatted size
+     * @return string Formatted size with unit
      */
     private function formatSize($bytes) {
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];

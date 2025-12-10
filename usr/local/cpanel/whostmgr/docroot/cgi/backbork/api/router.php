@@ -1,7 +1,26 @@
 <?php
 /**
  * BackBork KISS - API Router
- * Routes API requests to controllers
+ * 
+ * Central API endpoint that handles all AJAX requests from the frontend.
+ * Routes requests to appropriate handlers based on the 'action' parameter.
+ * 
+ * All responses are JSON formatted. Access control is enforced via ACL.
+ * 
+ * Available Actions:
+ * - get_accounts: List accounts user can access
+ * - get_config/save_config: User configuration management
+ * - get_global_config/save_global_config: Global settings (root only)
+ * - create_backup: Immediate backup execution
+ * - queue_backup: Add backup to queue for later processing
+ * - create_schedule: Create recurring backup schedule
+ * - delete_schedule: Remove a schedule
+ * - get_queue: Get queue and schedule status
+ * - restore_backup: Restore from backup file
+ * - get_destinations: List available backup destinations
+ * - get_logs: Retrieve operation logs
+ * - process_queue: Manually trigger queue processing (root only)
+ * - check_cron: Check cron job status
  *
  * BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  * Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
@@ -25,7 +44,11 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
-// Ensure Bootstrap is loaded (in case accessed directly)
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+// Ensure Bootstrap is loaded (in case accessed directly via URL)
 if (!defined('BACKBORK_VERSION')) {
     require_once(__DIR__ . '/../version.php');
 }
@@ -33,63 +56,175 @@ if (!class_exists('BackBorkBootstrap')) {
     require_once(__DIR__ . '/../app/Bootstrap.php');
 }
 
-// Initialize if not already done
+// Initialize application and verify user has access
 if (!BackBorkBootstrap::init()) {
+    // Access denied - return JSON error and log the attempt
     header('Content-Type: application/json');
-    // Attempt to log the denied attempt for auditing purposes
+    
+    // Log failed access attempt for security auditing
     if (class_exists('BackBorkLog')) {
-        $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] : (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown');
+        $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
+            ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
+            : (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown');
         BackBorkLog::logEvent('unknown', 'api_init_denied', [], false, 'API init failed (ACL or auth)', $requestor);
     }
+    
     echo json_encode(['success' => false, 'message' => 'Access denied']);
     exit;
 }
 
-// Always return JSON from this router (if headers not yet sent)
+// Set JSON content type for all API responses
 if (!headers_sent()) {
     header('Content-Type: application/json');
 }
 
-// Get ACL and user info
+// ============================================================================
+// GET CURRENT USER CONTEXT
+// ============================================================================
+
+// Get ACL instance for permission checks
 $acl = BackBorkBootstrap::getACL();
+
+// Current authenticated user (from WHM session)
 $currentUser = $acl->getCurrentUser();
+
+// Is this user root? (has full access)
 $isRoot = $acl->isRoot();
 
-// Get requestor for logging
+// Get requestor IP for audit logging
 $requestor = BackBorkLog::getRequestor();
 
-// Get action
+// ============================================================================
+// ROUTE REQUEST TO HANDLER
+// ============================================================================
+
+// Get requested action from POST or GET parameters
 $action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
 
-// Route to appropriate handler
+// Route to appropriate handler based on action
 switch ($action) {
+
+    // ========================================================================
+    // ACCOUNT MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Get list of accounts the current user can access
+     * Root sees all accounts, resellers see only their owned accounts
+     */
     case 'get_accounts':
         echo json_encode($acl->getAccessibleAccounts());
         break;
-        
+    
+    // ========================================================================
+    // CONFIGURATION MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Get current user's configuration settings
+     * Also includes global config info for root users
+     */
     case 'get_config':
         $config = new BackBorkConfig();
-        echo json_encode($config->getUserConfig($currentUser));
-        break;
+        $userConfig = $config->getUserConfig($currentUser);
         
-    case 'get_db_info':
-        $system = new BackBorkWhmApiSystem();
-        echo json_encode($system->detectDatabaseServer());
+        // Root gets additional global config information
+        if ($isRoot) {
+            $userConfig['_global'] = $config->getGlobalConfig();
+            $userConfig['_resellers'] = $acl->getResellers();
+            $userConfig['_users_with_schedules'] = $acl->getUsersWithSchedules();
+        } else {
+            // Non-root users only get schedule lock status
+            $userConfig['_schedules_locked'] = BackBorkConfig::areSchedulesLocked();
+        }
+        echo json_encode($userConfig);
         break;
-        
+    
+    /**
+     * Get global configuration (root only)
+     * Returns server-wide settings like schedule locks
+     */
+    case 'get_global_config':
+        // Security: Only root can access global config
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        $config = new BackBorkConfig();
+        echo json_encode($config->getGlobalConfig());
+        break;
+    
+    /**
+     * Save global configuration (root only)
+     * Updates server-wide settings
+     */
+    case 'save_global_config':
+        // Security: Only root can modify global config
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        $config = new BackBorkConfig();
+        $data = json_decode(file_get_contents('php://input'), true);
+        $result = $config->saveGlobalConfig($data, $currentUser);
+        echo json_encode($result);
+        break;
+    
+    /**
+     * Toggle schedule lock status (root only)
+     * When locked, resellers cannot create/modify/delete schedules
+     */
+    case 'set_schedules_lock':
+        // Security: Only root can lock schedules
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        $data = json_decode(file_get_contents('php://input'), true);
+        $locked = isset($data['locked']) ? (bool)$data['locked'] : false;
+        $config = new BackBorkConfig();
+        $result = $config->setSchedulesLocked($locked, $currentUser);
+        echo json_encode($result);
+        break;
+    
+    /**
+     * Save user's configuration settings
+     * Each user has their own notification and backup settings
+     */
     case 'save_config':
         $config = new BackBorkConfig();
         $data = json_decode(file_get_contents('php://input'), true);
         $result = $config->saveUserConfig($currentUser, $data);
         echo json_encode($result);
         break;
-        
+    
+    // ========================================================================
+    // DATABASE INFO
+    // ========================================================================
+    
+    /**
+     * Get database server information
+     * Returns MySQL/MariaDB version and available backup tools
+     */
+    case 'get_db_info':
+        $system = new BackBorkWhmApiSystem();
+        echo json_encode($system->detectDatabaseServer());
+        break;
+    
+    // ========================================================================
+    // BACKUP OPERATIONS
+    // ========================================================================
+    
+    /**
+     * Create an immediate backup
+     * Runs backup synchronously and returns result
+     */
     case 'create_backup':
         $data = json_decode(file_get_contents('php://input'), true);
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         
-        // Validate user can access these accounts
+        // Security: Validate user can access requested accounts
         $accessibleAccounts = $acl->getAccessibleAccounts();
         $validAccounts = array_intersect($accounts, array_column($accessibleAccounts, 'user'));
         
@@ -98,18 +233,23 @@ switch ($action) {
             break;
         }
         
+        // Execute backup
         $backupManager = new BackBorkBackupManager();
         $result = $backupManager->createBackup($validAccounts, $destinationId, $currentUser);
         echo json_encode($result);
         break;
-        
+    
+    /**
+     * Add backup job to queue
+     * Job will be processed by cron handler
+     */
     case 'queue_backup':
         $data = json_decode(file_get_contents('php://input'), true);
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         $schedule = isset($data['schedule']) ? $data['schedule'] : 'daily';
         
-        // Validate user can access these accounts
+        // Security: Validate user can access requested accounts
         $accessibleAccounts = $acl->getAccessibleAccounts();
         $validAccounts = array_intersect($accounts, array_column($accessibleAccounts, 'user'));
         
@@ -118,45 +258,101 @@ switch ($action) {
             break;
         }
         
+        // Add to queue
         $queue = new BackBorkQueue();
         $options = [];
         if (isset($data['retention'])) $options['retention'] = (int)$data['retention'];
         if (isset($data['preferred_time'])) $options['preferred_time'] = (int)$data['preferred_time'];
         
-        // Properly call addToQueue with typed params: accounts, destinationId, schedule, user, options
         $result = $queue->addToQueue($validAccounts, $destinationId, $schedule, $currentUser, $options);
         echo json_encode($result);
         break;
     
+    // ========================================================================
+    // SCHEDULE MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Create a recurring backup schedule
+     * Supports "all accounts" mode for dynamic account resolution
+     */
     case 'create_schedule':
         $data = json_decode(file_get_contents('php://input'), true);
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         $schedule = isset($data['schedule']) ? $data['schedule'] : 'daily';
+        $allAccounts = isset($data['all_accounts']) ? (bool)$data['all_accounts'] : false;
         
-        // Validate user can access these accounts
-        $accessibleAccounts = $acl->getAccessibleAccounts();
-        $validAccounts = array_intersect($accounts, array_column($accessibleAccounts, 'user'));
-        
-        if (empty($validAccounts)) {
-            echo json_encode(['success' => false, 'message' => 'No valid accounts selected']);
+        // Security: Check if schedules are locked for resellers
+        if (!$isRoot && BackBorkConfig::areSchedulesLocked()) {
+            echo json_encode(['success' => false, 'message' => 'Schedules are locked by administrator']);
             break;
         }
+        
+        // Handle "all accounts" mode - store wildcard for runtime resolution
+        if ($allAccounts || (is_array($accounts) && in_array('*', $accounts))) {
+            // Store ['*'] as placeholder - resolved to actual accounts at execution time
+            $validAccounts = ['*'];
+        } else {
+            // Validate user can access specific requested accounts
+            $accessibleAccounts = $acl->getAccessibleAccounts();
+            $validAccounts = array_intersect($accounts, array_column($accessibleAccounts, 'user'));
+            
+            if (empty($validAccounts)) {
+                echo json_encode(['success' => false, 'message' => 'No valid accounts selected']);
+                break;
+            }
+        }
 
+        // Create the schedule
         $queue = new BackBorkQueue();
         $options = [];
         if (isset($data['retention'])) $options['retention'] = (int)$data['retention'];
         if (isset($data['preferred_time'])) $options['preferred_time'] = (int)$data['preferred_time'];
+        if ($allAccounts) $options['all_accounts'] = true;
 
         $result = $queue->addToQueue($validAccounts, $destinationId, $schedule, $currentUser, $options);
         echo json_encode($result);
         break;
+    
+    /**
+     * Delete a schedule
+     * Users can only delete their own schedules unless root
+     */
+    case 'delete_schedule':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $jobId = isset($data['job_id']) ? $data['job_id'] : '';
         
+        // Security: Check if schedules are locked for resellers
+        if (!$isRoot && BackBorkConfig::areSchedulesLocked()) {
+            echo json_encode(['success' => false, 'message' => 'Schedules are locked by administrator']);
+            break;
+        }
+        
+        // Delete the schedule
+        $queue = new BackBorkQueue();
+        echo json_encode($queue->removeFromQueue($jobId, $currentUser, $isRoot));
+        break;
+    
+    // ========================================================================
+    // QUEUE MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Get queue status including pending jobs, running jobs, and schedules
+     * Root can filter by specific user with view_user parameter
+     */
     case 'get_queue':
         $queue = new BackBorkQueue();
-        echo json_encode($queue->getQueue($currentUser, $isRoot));
+        // Optional: Root can view as specific user
+        $viewAsUser = isset($_GET['view_user']) ? $_GET['view_user'] : null;
+        echo json_encode($queue->getQueue($currentUser, $isRoot, $viewAsUser));
         break;
-        
+    
+    /**
+     * Remove a job from the queue
+     * Users can only remove their own jobs unless root
+     */
     case 'remove_from_queue':
         $data = json_decode(file_get_contents('php://input'), true);
         $jobId = isset($data['job_id']) ? $data['job_id'] : '';
@@ -164,20 +360,63 @@ switch ($action) {
         $queue = new BackBorkQueue();
         echo json_encode($queue->removeFromQueue($jobId, $currentUser, $isRoot));
         break;
+    
+    /**
+     * Manually trigger queue processing (root only)
+     * Processes schedules and runs pending queue jobs
+     */
+    case 'process_queue':
+        // Security: Only root can manually trigger processing
+        if (!$isRoot) {
+            if (class_exists('BackBorkLog')) {
+                BackBorkLog::logEvent($currentUser, 'queue_process_denied', [], false, 
+                    'Non-root user attempted to trigger process_queue', $requestor);
+            }
+            echo json_encode(['success' => false, 'message' => 'Access denied: manual processing requires root']);
+            break;
+        }
 
-    case 'delete_schedule':
-        $data = json_decode(file_get_contents('php://input'), true);
-        $jobId = isset($data['job_id']) ? $data['job_id'] : '';
-        
-        $queue = new BackBorkQueue();
-        // Reuse removeFromQueue which handles schedules as well
-        echo json_encode($queue->removeFromQueue($jobId, $currentUser, $isRoot));
+        // Process schedules and queue
+        $processor = new BackBorkQueueProcessor();
+        try {
+            $scheduled = $processor->processSchedules();
+            $processed = $processor->processQueue();
+            
+            // Log successful processing
+            if (class_exists('BackBorkLog')) {
+                BackBorkLog::logEvent($currentUser, 'queue_process', [], true, 
+                    'Manual queue process completed', $requestor);
+            }
+            echo json_encode(['success' => true, 'scheduled' => $scheduled, 'processed' => $processed]);
+        } catch (Exception $e) {
+            // Log failed processing
+            if (class_exists('BackBorkLog')) {
+                BackBorkLog::logEvent($currentUser, 'queue_process', [], false, 
+                    'Manual queue process failed: ' . $e->getMessage(), $requestor);
+            }
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        }
         break;
-        
+    
+    /**
+     * Get running job status
+     */
+    case 'get_status':
+        $queue = new BackBorkQueue();
+        echo json_encode($queue->getRunningJobs($currentUser, $isRoot));
+        break;
+    
+    // ========================================================================
+    // RESTORE OPERATIONS
+    // ========================================================================
+    
+    /**
+     * Get list of local backups for an account
+     */
     case 'get_backups':
         $account = isset($_GET['account']) ? $_GET['account'] : '';
         
-        // Validate access
+        // Security: Validate user can access this account
         if (!$acl->canAccessAccount($account)) {
             echo json_encode(['success' => false, 'message' => 'Access denied']);
             break;
@@ -186,7 +425,10 @@ switch ($action) {
         $backupManager = new BackBorkBackupManager();
         echo json_encode($backupManager->listBackups($account, $currentUser));
         break;
-        
+    
+    /**
+     * Get list of remote backups from a destination
+     */
     case 'get_remote_backups':
         $destinationId = isset($_GET['destination']) ? $_GET['destination'] : '';
         $account = isset($_GET['account']) ? $_GET['account'] : '';
@@ -194,7 +436,10 @@ switch ($action) {
         $backupManager = new BackBorkBackupManager();
         echo json_encode($backupManager->listRemoteBackups($destinationId, $currentUser, $account));
         break;
-        
+    
+    /**
+     * Restore account from backup
+     */
     case 'restore_backup':
         $data = json_decode(file_get_contents('php://input'), true);
         $backupFile = isset($data['backup_file']) ? $data['backup_file'] : '';
@@ -202,22 +447,38 @@ switch ($action) {
         $restoreOptions = isset($data['options']) ? $data['options'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         
-        // Validate access
+        // Security: Validate user can access this account
         if (!$acl->canAccessAccount($account)) {
             echo json_encode(['success' => false, 'message' => 'Access denied']);
             break;
         }
         
+        // Execute restore
         $restoreManager = new BackBorkRestoreManager();
         $result = $restoreManager->restoreAccount($backupFile, $destinationId, $restoreOptions, $currentUser);
         echo json_encode($result);
         break;
-        
+    
+    // ========================================================================
+    // DESTINATION MANAGEMENT
+    // ========================================================================
+    
+    /**
+     * Get list of available backup destinations
+     * Reads from WHM's backup configuration
+     */
     case 'get_destinations':
         $parser = new BackBorkDestinationsParser();
         echo json_encode($parser->getAvailableDestinations());
         break;
-        
+    
+    // ========================================================================
+    // NOTIFICATIONS
+    // ========================================================================
+    
+    /**
+     * Send a test notification (email or Slack)
+     */
     case 'test_notification':
         $data = json_decode(file_get_contents('php://input'), true);
         $type = isset($data['type']) ? $data['type'] : 'email';
@@ -226,64 +487,55 @@ switch ($action) {
         $notify = new BackBorkNotify();
         echo json_encode($notify->testNotification($type, $config->getUserConfig($currentUser)));
         break;
-        
+    
+    // ========================================================================
+    // LOGS
+    // ========================================================================
+    
+    /**
+     * Get operation logs
+     * Supports pagination and filtering
+     */
     case 'get_logs':
         $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
         $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
         $filter = isset($_GET['filter']) ? $_GET['filter'] : 'all';
         
-        // Use centralized logger for retrieving logs
+        // Use centralized logger
         if (class_exists('BackBorkLog')) {
             echo json_encode(BackBorkLog::getLogs($currentUser, $isRoot, $page, $limit, $filter));
         } else {
+            // Fallback to backup manager's log method
             $backupManager = new BackBorkBackupManager();
             echo json_encode($backupManager->getLogs($currentUser, $isRoot, $page, $limit, $filter));
         }
         break;
-        
-    case 'get_status':
-        $queue = new BackBorkQueue();
-        echo json_encode($queue->getRunningJobs($currentUser, $isRoot));
-        break;
     
-    case 'process_queue':
-        // Manual trigger to process schedules and queue (protected via ACL)
-        // Only allow root to manually trigger processing
-        if (!$isRoot) {
-            if (class_exists('BackBorkLog')) {
-                BackBorkLog::logEvent($currentUser, 'queue_process_denied', [], false, 'Non-root user attempted to trigger process_queue', $requestor);
-            }
-            echo json_encode(['success' => false, 'message' => 'Access denied: manual processing requires root']);
-            break;
-        }
-
-        $processor = new BackBorkQueueProcessor();
-        try {
-            $scheduled = $processor->processSchedules();
-            $processed = $processor->processQueue();
-            
-            if (class_exists('BackBorkLog')) {
-                BackBorkLog::logEvent($currentUser, 'queue_process', [], true, 'Manual queue process completed', $requestor);
-            }
-            echo json_encode(['success' => true, 'scheduled' => $scheduled, 'processed' => $processed]);
-        } catch (Exception $e) {
-            if (class_exists('BackBorkLog')) {
-                BackBorkLog::logEvent($currentUser, 'queue_process', [], false, 'Manual queue process failed: ' . $e->getMessage(), $requestor);
-            }
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-        }
-        break;
-        
+    // ========================================================================
+    // CRON STATUS
+    // ========================================================================
+    
+    /**
+     * Check if cron job is properly configured
+     * Returns cron file path, schedule, and command
+     */
     case 'check_cron':
-        $cronStatus = ['installed' => false, 'path' => '', 'schedule' => '', 'command' => '', 'message' => ''];
+        $cronStatus = [
+            'installed' => false, 
+            'path' => '', 
+            'schedule' => '', 
+            'command' => '', 
+            'message' => ''
+        ];
         
-        // Check /etc/cron.d/backbork
+        // Check /etc/cron.d/backbork first (preferred location)
         $cronFile = '/etc/cron.d/backbork';
         if (file_exists($cronFile)) {
             $cronStatus['installed'] = true;
             $cronStatus['path'] = $cronFile;
             $content = file_get_contents($cronFile);
-            // Extract schedule and command from cron file
+            
+            // Parse cron schedule and command from file
             if (preg_match('/^([0-9*\/,\-]+\s+[0-9*\/,\-]+\s+[0-9*\/,\-]+\s+[0-9*\/,\-]+\s+[0-9*\/,\-]+)\s+(.+)$/m', $content, $matches)) {
                 $cronStatus['schedule'] = trim($matches[1]);
                 $cronStatus['command'] = trim($matches[2]);
@@ -291,12 +543,13 @@ switch ($action) {
                 $cronStatus['command'] = trim($content);
             }
         } else {
-            // Check root crontab
+            // Fallback: Check root's crontab
             $crontab = shell_exec('crontab -l 2>/dev/null');
             if ($crontab && strpos($crontab, 'backbork') !== false) {
                 $cronStatus['installed'] = true;
                 $cronStatus['path'] = 'root crontab';
-                // Find the line with backbork
+                
+                // Parse backbork line from crontab
                 if (preg_match('/^([0-9*\/,\-]+\s+[0-9*\/,\-]+\s+[0-9*\/,\-]+\s+[0-9*\/,\-]+\s+[0-9*\/,\-]+)\s+(.*backbork.*)$/m', $crontab, $matches)) {
                     $cronStatus['schedule'] = trim($matches[1]);
                     $cronStatus['command'] = trim($matches[2]);
@@ -308,7 +561,11 @@ switch ($action) {
         
         echo json_encode($cronStatus);
         break;
-        
+    
+    // ========================================================================
+    // DEFAULT (INVALID ACTION)
+    // ========================================================================
+    
     default:
         echo json_encode(['success' => false, 'message' => 'Invalid action']);
 }

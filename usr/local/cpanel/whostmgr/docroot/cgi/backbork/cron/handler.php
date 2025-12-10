@@ -25,35 +25,47 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
-// CLI only
+// ============================================================================
+// CLI ONLY - This script must only be run from command line via cron
+// ============================================================================
 if (php_sapi_name() !== 'cli') {
     die('CLI only');
 }
 
-// Load version constant
+// Load version constant for logging
 require_once(__DIR__ . '/../version.php');
 
-// Load Bootstrap in CLI mode
+// Load Bootstrap in CLI mode (initializes all classes and dependencies)
 require_once(__DIR__ . '/../app/Bootstrap.php');
 
-// Initialize for CLI
+// Initialize application for CLI environment (no session handling)
 BackBorkBootstrap::initCLI();
 
-// Define paths
-define('CRON_LAST_RUN_FILE', '/usr/local/cpanel/3rdparty/backbork/cron_last_run');
-define('CRON_HEALTH_CHECK_INTERVAL', 1800); // 30 minutes in seconds
+// ============================================================================
+// CONSTANTS
+// ============================================================================
 
-// Create processor instance
+// File to track last successful cron execution time
+define('CRON_LAST_RUN_FILE', '/usr/local/cpanel/3rdparty/backbork/cron_last_run');
+
+// Health check interval (30 minutes) - alert if cron hasn't run in this time
+define('CRON_HEALTH_CHECK_INTERVAL', 1800);
+
+// ============================================================================
+// MAIN EXECUTION
+// ============================================================================
+
+// Create queue processor instance for handling backup jobs
 $processor = new BackBorkQueueProcessor();
 
-// Log start
+// Log start of cron run
 error_log('[BackBork] Cron handler started at ' . date('Y-m-d H:i:s'));
 echo '[BackBork] Cron handler started at ' . date('Y-m-d H:i:s') . "\n";
 
-// Update last run timestamp
+// Update last run timestamp (for health check monitoring)
 file_put_contents(CRON_LAST_RUN_FILE, time());
 
-// Check if already running
+// Prevent concurrent execution - skip if already running
 BackBorkConfig::debugLog('Checking if processor is running...');
 if ($processor->isRunning()) {
     BackBorkConfig::debugLog('Queue processor already running, skipping');
@@ -61,66 +73,80 @@ if ($processor->isRunning()) {
 }
 BackBorkConfig::debugLog('Processor not running, continuing...');
 
-// Handle cleanup command
+// Handle special 'cleanup' command for maintenance tasks
 if (isset($argv[1]) && $argv[1] === 'cleanup') {
     runCleanup($processor);
     exit(0);
 }
 
-// Perform cron health self-check and notify if issues
+// Check cron health and send alerts if issues detected
 performHealthCheck();
 
-// Process schedules first (adds to queue)
+// ============================================================================
+// SCHEDULE PROCESSING - Check for due scheduled backups and queue them
+// ============================================================================
 $scheduleResults = $processor->processSchedules();
 if (!empty($scheduleResults['scheduled'])) {
     error_log('[BackBork] Scheduled items queued: ' . count($scheduleResults['scheduled']));
 }
 
-// Process queue
+// ============================================================================
+// QUEUE PROCESSING - Execute queued backup/restore jobs
+// ============================================================================
 $queueResults = $processor->processQueue();
 error_log('[BackBork] Queue processing complete: ' . $queueResults['message']);
 
-// Log via BackBorkLog if available - include actual accounts processed
+// Log significant events via BackBorkLog for history tracking
 if (class_exists('BackBorkLog')) {
     $processed = $queueResults['processed'] ?? 0;
     $failed = $queueResults['failed'] ?? 0;
     $accounts = $queueResults['accounts'] ?? [];
     $logMessage = $queueResults['message'];
     
-    // Only log if something happened or there was an error
+    // Only log if something was processed or there were errors
     if ($processed > 0 || $failed > 0 || !$queueResults['success']) {
         BackBorkLog::logEvent('root', 'queue_cron_process', $accounts, $queueResults['success'], $logMessage, 'cron');
     }
 }
 
-// Get stats
+// Log current queue statistics
 $stats = $processor->getStats();
 error_log('[BackBork] Queue stats - Total: ' . $stats['total'] . 
           ', Queued: ' . $stats['queued'] . 
           ', Failed: ' . $stats['failed']);
 
-// Cleanup old temp files (older than 24 hours)
+// ============================================================================
+// CLEANUP - Remove old temporary files from retrieval operations
+// ============================================================================
 $retrieval = new BackBorkRetrieval();
-$cleaned = $retrieval->cleanupTempFiles(24);
+$cleaned = $retrieval->cleanupTempFiles(24);  // Delete files older than 24 hours
 if ($cleaned > 0) {
     error_log('[BackBork] Cleaned up ' . $cleaned . ' old temp files');
 }
 
+// Log completion
 error_log('[BackBork] Cron handler finished at ' . date('Y-m-d H:i:s'));
 echo '[BackBork] Cron handler finished at ' . date('Y-m-d H:i:s') . "\n";
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
 /**
- * Run cleanup tasks
+ * Run maintenance cleanup tasks.
+ * Called with 'cleanup' argument: php handler.php cleanup
+ * 
+ * @param BackBorkQueueProcessor $processor Queue processor instance
  */
 function runCleanup($processor) {
     error_log('[BackBork] Running cleanup tasks...');
     
-    // Clean completed jobs older than 30 days
+    // Remove completed queue jobs older than 30 days
     $processor->cleanupCompletedJobs(30);
     
-    // Rotate logs
+    // Rotate old log files (delete logs older than 30 days)
     $logDir = '/usr/local/cpanel/3rdparty/backbork/logs';
-    $maxLogAge = 30 * 24 * 60 * 60; // 30 days
+    $maxLogAge = 30 * 24 * 60 * 60; // 30 days in seconds
     
     foreach (glob($logDir . '/*.log') as $logFile) {
         if (filemtime($logFile) < (time() - $maxLogAge)) {
@@ -129,33 +155,35 @@ function runCleanup($processor) {
         }
     }
     
-    // Clean orphaned temp files
+    // Clean orphaned temp files from failed/interrupted operations
     $retrieval = new BackBorkRetrieval();
     $cleaned = $retrieval->cleanupTempFiles(24);
     error_log('[BackBork] Cleanup complete. Removed ' . $cleaned . ' temp files.');
 }
 
 /**
- * Perform cron health self-check
- * Sends notification if cron hasn't run in expected interval
+ * Perform cron health self-check.
+ * Verifies cron file exists and last run was recent.
+ * Sends alerts if issues detected.
  */
 function performHealthCheck() {
+    // File to track when we last sent a health alert (prevent spam)
     $healthFile = '/usr/local/cpanel/3rdparty/backbork/cron_health_notified';
     
-    // Check if cron file exists
+    // Check if cron configuration file exists
     if (!file_exists('/etc/cron.d/backbork')) {
         sendHealthAlert('Cron file /etc/cron.d/backbork is missing', $healthFile);
         return;
     }
     
-    // Check last run time (for detecting stuck cron)
+    // Check last run time to detect stuck/failed cron
     if (file_exists(CRON_LAST_RUN_FILE)) {
         $lastRun = (int)file_get_contents(CRON_LAST_RUN_FILE);
         $timeSinceLastRun = time() - $lastRun;
         
-        // If longer than our expected interval, something may be wrong
+        // Alert if gap exceeds expected interval
         if ($timeSinceLastRun > CRON_HEALTH_CHECK_INTERVAL) {
-            // Friendly, human-readable delta
+            // Format human-readable time delta
             if ($timeSinceLastRun < 3600) {
                 $delta = round($timeSinceLastRun / 60) . ' minutes';
             } else {
@@ -170,20 +198,24 @@ function performHealthCheck() {
         }
     }
     
-    // Clear any previous health notification flag since we're healthy now
+    // Clear previous health notification flag - we're healthy now
     if (file_exists($healthFile)) {
         unlink($healthFile);
     }
 }
 
 /**
- * Send health alert via email and Slack
+ * Send health alert notifications via email and Slack.
+ * Rate-limited to prevent notification spam (max once per 24 hours).
+ * 
+ * @param string $issue Description of the health issue
+ * @param string $healthFile Path to notification tracking file
+ * @param int|null $lastRun Timestamp of last successful run (optional)
  */
 function sendHealthAlert($issue, $healthFile, $lastRun = null) {
-    // Don't spam - only send once per issue
+    // Rate limiting: Don't re-notify within 24 hours
     if (file_exists($healthFile)) {
         $lastNotified = (int)file_get_contents($healthFile);
-        // Don't re-notify within 24 hours
         if ((time() - $lastNotified) < 86400) {
             return;
         }
@@ -191,17 +223,23 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
     
     error_log('[BackBork] HEALTH ALERT: ' . $issue);
     
-    // Get root config for notification settings
+    // Load root user's notification configuration
     $config = new BackBorkConfig();
     $rootConfig = $config->getUserConfig('root');
     
+    // Gather alert context
     $hostname = gethostname() ?: 'unknown';
     $timestamp = date('Y-m-d H:i:s T');
     $lastRunStr = $lastRun ? date('Y-m-d H:i:s T', $lastRun) : 'Never';
     
-    // Send email if configured
+    // ========================================================================
+    // EMAIL NOTIFICATION - Send formatted alert email to configured address
+    // ========================================================================
     if (!empty($rootConfig['notify_email'])) {
+        // Compose alert subject with warning emoji and hostname
         $subject = "⚠️ [BackBork] Cron Health Check Failed on {$hostname}";
+        
+        // Build plain text email body with troubleshooting steps
         $body = "BackBork Cron Health Alert\n";
         $body .= "══════════════════════════\n\n";
         $body .= "Server: {$hostname}\n";
@@ -217,15 +255,22 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
         $body .= "══════════════════════════\n";
         $body .= "This is an automated alert from BackBork KISS\n";
         
+        // Send email using PHP mail() function
         mail($rootConfig['notify_email'], $subject, $body, "From: backbork@{$hostname}");
         error_log('[BackBork] Health alert email sent to ' . $rootConfig['notify_email']);
     }
     
-    // Send Slack if configured
+    // ========================================================================
+    // SLACK NOTIFICATION - Send Block Kit formatted message to webhook
+    // ========================================================================
     if (!empty($rootConfig['slack_webhook'])) {
+        // Build Slack Block Kit payload with rich formatting
         $slackPayload = [
+            // Fallback text for notifications
             'text' => "⚠️ BackBork Cron Health Check Failed on {$hostname}",
+            // Rich Block Kit blocks for full display
             'blocks' => [
+                // Header block with warning icon
                 [
                     'type' => 'header',
                     'text' => [
@@ -234,6 +279,7 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
                         'emoji' => true
                     ]
                 ],
+                // Status fields in 2-column layout
                 [
                     'type' => 'section',
                     'fields' => [
@@ -243,6 +289,7 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
                         ['type' => 'mrkdwn', 'text' => "*Last Run:*\n{$lastRunStr}"]
                     ]
                 ],
+                // Troubleshooting section with action items
                 [
                     'type' => 'section',
                     'text' => [
@@ -253,19 +300,20 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
             ]
         ];
         
+        // Send POST request to Slack webhook URL
         $ch = curl_init($rootConfig['slack_webhook']);
         curl_setopt_array($ch, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($slackPayload),
+            CURLOPT_POST => true,                                  // HTTP POST method
+            CURLOPT_POSTFIELDS => json_encode($slackPayload),      // JSON encoded payload
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 10
+            CURLOPT_RETURNTRANSFER => true,                        // Return response string
+            CURLOPT_TIMEOUT => 10                                  // 10 second timeout
         ]);
         curl_exec($ch);
         curl_close($ch);
         error_log('[BackBork] Health alert sent to Slack');
     }
     
-    // Mark that we've notified
+    // Record notification timestamp to prevent re-alerting too soon
     file_put_contents($healthFile, time());
 }

@@ -25,51 +25,61 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * Interface for backup transport implementations.
+ * All transport types (Local, Native/SFTP, etc.) must implement this interface.
+ * Provides consistent API for upload, download, listing, and deletion operations.
+ */
 interface BackBorkTransportInterface {
     
     /**
-     * Upload a file to the destination
+     * Upload a file to the destination.
+     * Transfers a local backup file to the remote/destination storage.
      * 
-     * @param string $localPath Local file path
-     * @param string $remotePath Remote destination path
-     * @param array $destination Destination configuration
-     * @return array Result with success status and message
+     * @param string $localPath Absolute path to local file
+     * @param string $remotePath Destination path (relative to destination base)
+     * @param array $destination Destination configuration array
+     * @return array Result with 'success' (bool) and 'message' (string)
      */
     public function upload($localPath, $remotePath, $destination);
     
     /**
-     * Download a file from the destination
+     * Download a file from the destination.
+     * Retrieves a backup file from remote/destination storage to local path.
      * 
-     * @param string $remotePath Remote file path
-     * @param string $localPath Local destination path
-     * @param array $destination Destination configuration
-     * @return array Result with success status and message
+     * @param string $remotePath Path at destination (relative to base)
+     * @param string $localPath Local path to save downloaded file
+     * @param array $destination Destination configuration array
+     * @return array Result with 'success' (bool) and 'message' (string)
      */
     public function download($remotePath, $localPath, $destination);
     
     /**
-     * List files at the destination
+     * List files at the destination.
+     * Returns available backup files at the specified path.
      * 
-     * @param string $remotePath Remote path to list
-     * @param array $destination Destination configuration
-     * @return array List of files
+     * @param string $remotePath Path to list (relative to destination base)
+     * @param array $destination Destination configuration array
+     * @return array List of file info arrays (file, size, date, etc.)
      */
     public function listFiles($remotePath, $destination);
     
     /**
-     * Delete a file from the destination
+     * Delete a file from the destination.
+     * Removes a backup file from remote/destination storage.
      * 
-     * @param string $remotePath Remote file path
-     * @param array $destination Destination configuration
-     * @return array Result with success status
+     * @param string $remotePath Path to file (relative to destination base)
+     * @param array $destination Destination configuration array
+     * @return array Result with 'success' (bool) and 'message' (string)
      */
     public function delete($remotePath, $destination);
     
     /**
-     * Test connection to the destination
+     * Test connection to the destination.
+     * Verifies that the destination is accessible and credentials work.
      * 
-     * @param array $destination Destination configuration
-     * @return array Result with success status
+     * @param array $destination Destination configuration array
+     * @return array Result with 'success' (bool) and 'message' (string)
      */
     public function testConnection($destination);
 }

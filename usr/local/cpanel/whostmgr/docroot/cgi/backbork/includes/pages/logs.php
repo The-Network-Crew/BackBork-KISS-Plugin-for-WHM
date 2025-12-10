@@ -24,11 +24,21 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 ?>
+<!-- ========================================================================
+     LOGS PANEL
+     Activity history showing backup/restore operations and errors
+     - Filter by type (all, backups, restores, errors)
+     - Paginated log entries loaded via API
+     - Shows timestamp, type, user, accounts, and details
+======================================================================== -->
 <div id="panel-logs" class="backbork-panel">
     <div class="backbork-card">
         <h3>Activity Logs</h3>
+        
+        <!-- Filter Controls: Type filter and refresh button -->
         <div class="form-row">
             <div class="form-group">
+                <!-- Filter dropdown to narrow log display -->
                 <label for="log-filter">Filter</label>
                 <select id="log-filter">
                     <option value="all">All Activities</option>
@@ -39,11 +49,14 @@
             </div>
             <div class="form-group">
                 <label>&nbsp;</label>
+                <!-- Manual refresh - also auto-refreshes on tab switch -->
                 <button type="button" class="btn btn-secondary" id="btn-refresh-logs">
                     🔄 Refresh
                 </button>
             </div>
         </div>
+        
+        <!-- Logs Table: Populated via JavaScript API call -->
         <div class="table-container">
             <table class="backbork-table logs-table">
                 <thead>
@@ -59,6 +72,7 @@
                 </tbody>
             </table>
         </div>
+        <!-- Pagination controls rendered by JavaScript -->
         <div id="logs-pagination" style="margin-top: 15px; text-align: center;"></div>
     </div>
 </div>

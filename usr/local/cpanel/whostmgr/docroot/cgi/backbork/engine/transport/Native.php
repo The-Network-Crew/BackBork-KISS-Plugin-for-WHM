@@ -25,19 +25,27 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * Native transport implementation using WHM's cpbackup_transport_file.
+ * Handles SFTP and FTP transfers via cPanel's built-in transport system.
+ * Leverages existing WHM destination configurations for authentication.
+ */
 class BackBorkTransportNative implements BackBorkTransportInterface {
     
+    // Path to cPanel's native backup transport binary
     const TRANSPORT_BIN = '/scripts/cpbackup_transport_file';
     
     /**
-     * Upload a file using cpbackup_transport_file
+     * Upload a file using cpbackup_transport_file.
+     * Files are placed in manual_backup/ subdirectory at destination.
      * 
-     * @param string $localPath Local file path
-     * @param string $remotePath Remote destination path (usually ignored, goes to manual_backup/)
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param string $localPath Absolute path to local file
+     * @param string $remotePath Remote destination path (often ignored by cpbackup_transport)
+     * @param array $destination Destination configuration from WHM
+     * @return array Result with success status, file info, and remote path
      */
     public function upload($localPath, $remotePath, $destination) {
+        // Verify local file exists before attempting upload
         if (!file_exists($localPath)) {
             return [
                 'success' => false,
@@ -45,6 +53,7 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             ];
         }
         
+        // Verify transport binary is available
         if (!file_exists(self::TRANSPORT_BIN)) {
             return [
                 'success' => false,
@@ -52,17 +61,20 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             ];
         }
         
-        // Correct syntax: cpbackup_transport_file --transport <id> --upload </full/path/to/file>
+        // Build cpbackup_transport_file command
+        // Syntax: cpbackup_transport_file --transport <id> --upload </full/path/to/file>
         $transportCmd = self::TRANSPORT_BIN . 
                         ' --transport ' . escapeshellarg($destination['id']) .
                         ' --upload ' . escapeshellarg($localPath);
         
+        // Execute transport command and capture output
         $output = [];
         $returnCode = 0;
         exec($transportCmd . ' 2>&1', $output, $returnCode);
         
         $transportOutput = implode("\n", $output);
         
+        // Check for execution failure
         if ($returnCode !== 0) {
             return [
                 'success' => false,
@@ -72,7 +84,7 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             ];
         }
         
-        // File ends up at: <remote_path>/manual_backup/<filename>
+        // cpbackup_transport places files in manual_backup/ subdirectory
         $actualRemotePath = 'manual_backup/' . basename($localPath);
         
         return [
@@ -85,14 +97,16 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     }
     
     /**
-     * Download a file using cpbackup_transport_file
+     * Download a file using cpbackup_transport_file.
+     * Retrieves backup from remote destination to local path.
      * 
-     * @param string $remotePath Remote file path
-     * @param string $localPath Local destination path
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param string $remotePath Path at remote destination
+     * @param string $localPath Local path to save downloaded file
+     * @param array $destination Destination configuration from WHM
+     * @return array Result with success status and local path
      */
     public function download($remotePath, $localPath, $destination) {
+        // Verify transport binary is available
         if (!file_exists(self::TRANSPORT_BIN)) {
             return [
                 'success' => false,
@@ -100,22 +114,25 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             ];
         }
         
-        // Ensure local directory exists
+        // Ensure local directory exists for download
         $localDir = dirname($localPath);
         if (!is_dir($localDir)) {
             mkdir($localDir, 0700, true);
         }
         
-        // Correct syntax: cpbackup_transport_file --transport <id> --download <remote_path> --download-to <local_path>
+        // Build download command
+        // Syntax: cpbackup_transport_file --transport <id> --download <remote_path> --download-to <local_path>
         $transportCmd = self::TRANSPORT_BIN .
                         ' --transport ' . escapeshellarg($destination['id']) .
                         ' --download ' . escapeshellarg($remotePath) .
                         ' --download-to ' . escapeshellarg($localPath);
         
+        // Execute download command
         $output = [];
         $returnCode = 0;
         exec($transportCmd . ' 2>&1', $output, $returnCode);
         
+        // Verify download succeeded and file exists
         if ($returnCode === 0 && file_exists($localPath)) {
             return [
                 'success' => true,
@@ -132,29 +149,34 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     }
     
     /**
-     * List files at remote destination
-     * This is done via SSH for SFTP destinations
+     * List files at remote destination.
+     * Uses SSH for SFTP destinations to enumerate backup files.
      * 
-     * @param string $remotePath Remote path
-     * @param array $destination Destination configuration
-     * @return array
+     * @param string $remotePath Path to list (relative to destination base)
+     * @param array $destination Destination configuration from WHM
+     * @return array List of file info arrays with filename, size, and date
      */
     public function listFiles($remotePath, $destination) {
         $files = [];
         
-        // For SFTP destinations, use SSH to list
+        // Handle SFTP destinations via direct SSH connection
         if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
+            // Extract connection details from destination config
             $host = $destination['host'] ?? '';
             $port = $destination['port'] ?? 22;
             $username = $destination['username'] ?? '';
             $basePath = $destination['path'] ?? '/';
             
+            // Validate required connection details
             if (empty($host) || empty($username)) {
                 return $files;
             }
             
+            // Build full path to list
             $fullPath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
             
+            // Use find command to locate backup files and get metadata
+            // Output format: filename|size|mtime
             $sshCmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes " .
                       escapeshellarg("{$username}@{$host}") . " " .
                       "'find " . escapeshellarg($fullPath) . " -name \"cpmove-*.tar.gz\" -printf \"%f|%s|%T@\\n\" 2>/dev/null'";
@@ -162,6 +184,7 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             $output = [];
             exec($sshCmd, $output);
             
+            // Parse find output into file info arrays
             foreach ($output as $line) {
                 $parts = explode('|', $line);
                 if (count($parts) >= 3) {
@@ -179,26 +202,31 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     }
     
     /**
-     * Delete a file from the destination
+     * Delete a file from the destination.
+     * Uses SSH for SFTP destinations to remove files.
      * 
-     * @param string $remotePath Remote file path
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param string $remotePath Path to file (relative to destination base)
+     * @param array $destination Destination configuration from WHM
+     * @return array Result with success status and message
      */
     public function delete($remotePath, $destination) {
-        // For SFTP destinations, use SSH to delete
+        // Handle SFTP destinations via direct SSH connection
         if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
+            // Extract connection details
             $host = $destination['host'] ?? '';
             $port = $destination['port'] ?? 22;
             $username = $destination['username'] ?? '';
             $basePath = $destination['path'] ?? '/';
             
+            // Validate required connection details
             if (empty($host) || empty($username)) {
                 return ['success' => false, 'message' => 'Invalid destination configuration'];
             }
             
+            // Build full path to delete
             $fullPath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
             
+            // Execute rm command via SSH
             $sshCmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes " .
                       escapeshellarg("{$username}@{$host}") . " " .
                       "'rm -f " . escapeshellarg($fullPath) . "'";
@@ -216,17 +244,20 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     }
     
     /**
-     * Test connection to destination
+     * Test connection to destination.
+     * Verifies SFTP/FTP connectivity and authentication.
      * 
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param array $destination Destination configuration from WHM
+     * @return array Result with success status and connection message
      */
     public function testConnection($destination) {
+        // Test SFTP connection via SSH
         if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
             $host = $destination['host'] ?? '';
             $port = $destination['port'] ?? 22;
             $username = $destination['username'] ?? '';
             
+            // Build SSH test command with short timeout
             $cmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 " .
                    escapeshellarg("{$username}@{$host}") . " 'echo connected' 2>&1";
             
@@ -234,6 +265,7 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             $returnCode = 0;
             exec($cmd, $output, $returnCode);
             
+            // Check for successful connection
             if ($returnCode === 0 && in_array('connected', $output)) {
                 return ['success' => true, 'message' => 'SFTP connection successful'];
             }
@@ -244,10 +276,12 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             ];
         }
         
+        // Test FTP connection via curl
         if ($destination['type'] === 'FTP' || $destination['type'] === 'ftp') {
             $host = $destination['host'] ?? '';
             $port = $destination['port'] ?? 21;
             
+            // Use curl to test FTP connection
             $ch = curl_init();
             curl_setopt_array($ch, [
                 CURLOPT_URL => "ftp://{$host}:{$port}/",
@@ -258,6 +292,7 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
                 CURLOPT_FTPLISTONLY => true
             ]);
             
+            // Add credentials if provided
             if (!empty($destination['username'])) {
                 curl_setopt($ch, CURLOPT_USERPWD, $destination['username'] . ':');
             }

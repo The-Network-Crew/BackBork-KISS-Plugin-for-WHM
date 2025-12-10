@@ -1,7 +1,14 @@
 <?php
 /**
  * BackBork KISS - Configuration Manager
- * Stores per-user configuration for root and resellers
+ * 
+ * Manages all configuration storage for the plugin:
+ * - Per-user settings (notifications, backup options, skip flags)
+ * - Global settings (debug mode, schedule locks)
+ * - Directory structure initialization
+ * 
+ * Configuration is stored as JSON files in /usr/local/cpanel/3rdparty/backbork/
+ * Each user gets their own config file for isolation.
  *
  * BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  * Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
@@ -27,43 +34,56 @@
 
 class BackBorkConfig {
     
+    // Base directory for all BackBork data files
     const CONFIG_DIR = '/usr/local/cpanel/3rdparty/backbork';
+    
+    // Global configuration file (shared settings like schedule locks)
     const GLOBAL_CONFIG_FILE = '/usr/local/cpanel/3rdparty/backbork/global.json';
     
     /**
-     * Constructor - Ensure config directory exists
+     * Constructor - Initialize config directories
+     * 
+     * Creates the required directory structure if it doesn't exist.
+     * Called automatically when Config is instantiated.
      */
     public function __construct() {
         $this->ensureConfigDir();
     }
     
     /**
-     * Ensure configuration directory exists
+     * Create all required directories for BackBork data storage
+     * 
+     * Directory structure:
+     * - /users/     Per-user configuration JSON files
+     * - /schedules/ Scheduled backup job definitions  
+     * - /queue/     Pending backup jobs waiting to run
+     * - /logs/      Operation logs and audit trail
      */
     private function ensureConfigDir() {
+        // Create base directory if missing
         if (!is_dir(self::CONFIG_DIR)) {
             mkdir(self::CONFIG_DIR, 0700, true);
         }
         
-        // User configs subdirectory
+        // User configs subdirectory - stores per-user settings
         $userConfigDir = self::CONFIG_DIR . '/users';
         if (!is_dir($userConfigDir)) {
             mkdir($userConfigDir, 0700, true);
         }
         
-        // Schedules directory
+        // Schedules directory - stores recurring backup definitions
         $schedulesDir = self::CONFIG_DIR . '/schedules';
         if (!is_dir($schedulesDir)) {
             mkdir($schedulesDir, 0700, true);
         }
         
-        // Queue directory
+        // Queue directory - stores pending one-time backup jobs
         $queueDir = self::CONFIG_DIR . '/queue';
         if (!is_dir($queueDir)) {
             mkdir($queueDir, 0700, true);
         }
         
-        // Logs directory
+        // Logs directory - stores operation audit logs
         $logsDir = self::CONFIG_DIR . '/logs';
         if (!is_dir($logsDir)) {
             mkdir($logsDir, 0700, true);
@@ -71,74 +91,234 @@ class BackBorkConfig {
     }
     
     /**
-     * Get user-specific configuration file path
+     * Get global configuration settings
      * 
-     * @param string $user Username
-     * @return string
+     * Global config includes settings that apply server-wide:
+     * - debug_mode: Enable verbose logging
+     * - schedules_locked: Prevent resellers from managing schedules
+     * 
+     * @return array Merged defaults with saved global config
      */
-    private function getUserConfigFile($user) {
-        return self::CONFIG_DIR . '/users/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $user) . '.json';
+    public function getGlobalConfig() {
+        // Start with sensible defaults
+        $defaults = $this->getGlobalDefaults();
+        
+        // Return defaults if no config file exists yet
+        if (!file_exists(self::GLOBAL_CONFIG_FILE)) {
+            return $defaults;
+        }
+        
+        // Read and parse the global config file
+        $content = file_get_contents(self::GLOBAL_CONFIG_FILE);
+        $config = json_decode($content, true);
+        
+        // Return defaults if JSON parsing failed
+        if (!is_array($config)) {
+            return $defaults;
+        }
+        
+        // Merge saved config over defaults (saved values take precedence)
+        return array_merge($defaults, $config);
     }
     
     /**
-     * Get user configuration
+     * Save global configuration (root only)
+     * 
+     * Merges new settings with existing config and saves to disk.
+     * Also logs the change for audit purposes.
+     * 
+     * @param array $config Key-value pairs to save
+     * @param string $user Username making the change (for audit log)
+     * @return array Result with 'success' boolean and 'message' string
+     */
+    public function saveGlobalConfig($config, $user = 'root') {
+        // Get existing config to merge with
+        $existing = $this->getGlobalConfig();
+        
+        // Merge new values over existing (new values win)
+        $merged = array_merge($existing, $config);
+        
+        // Add metadata for tracking
+        $merged['updated_at'] = date('Y-m-d H:i:s');
+        $merged['updated_by'] = $user;
+        
+        // Write to disk with pretty formatting for readability
+        $result = file_put_contents(self::GLOBAL_CONFIG_FILE, json_encode($merged, JSON_PRETTY_PRINT));
+        
+        if ($result === false) {
+            return ['success' => false, 'message' => 'Failed to save global configuration'];
+        }
+        
+        // Secure the file - only root should read it
+        chmod(self::GLOBAL_CONFIG_FILE, 0600);
+        
+        // Log the config update for audit trail
+        if (class_exists('BackBorkLog')) {
+            // Determine where the request came from
+            $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
+                ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
+                : (isset($_SERVER['REMOTE_ADDR']) 
+                    ? $_SERVER['REMOTE_ADDR'] 
+                    : (BackBorkBootstrap::isCLI() ? 'cron' : 'local'));
+            
+            // Build human-readable list of changes
+            $changes = [];
+            foreach ($config as $key => $value) {
+                if (is_bool($value)) {
+                    $changes[] = $key . '=' . ($value ? 'true' : 'false');
+                } else {
+                    $changes[] = $key . '=' . $value;
+                }
+            }
+            BackBorkLog::logEvent($user, 'global_config_update', $changes, true, 'Global configuration saved', $requestor);
+        }
+        
+        return ['success' => true, 'message' => 'Global configuration saved successfully'];
+    }
+    
+    /**
+     * Get default values for global configuration
+     * 
+     * @return array Default global settings
+     */
+    public function getGlobalDefaults() {
+        return [
+            'debug_mode' => false,           // Verbose logging off by default
+            'schedules_locked' => false,     // Resellers can manage schedules by default
+            'schedules_locked_at' => null,   // Timestamp when lock was enabled
+            'schedules_locked_by' => null,   // User who enabled the lock
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+    }
+    
+    /**
+     * Check if schedule management is locked for resellers
+     * 
+     * When locked, only root can create/edit/delete schedules.
+     * Existing schedules continue to run normally.
+     * 
+     * @return bool True if schedules are locked
+     */
+    public static function areSchedulesLocked() {
+        // Not locked if config file doesn't exist
+        if (!file_exists(self::GLOBAL_CONFIG_FILE)) {
+            return false;
+        }
+        
+        // Parse config and check the flag
+        $config = json_decode(file_get_contents(self::GLOBAL_CONFIG_FILE), true);
+        return !empty($config['schedules_locked']);
+    }
+    
+    /**
+     * Set the schedule lock status
+     * 
+     * Convenience method to toggle the schedule lock with proper metadata.
+     * 
+     * @param bool $locked True to lock, false to unlock
+     * @param string $user Username making the change
+     * @return array Result from saveGlobalConfig
+     */
+    public function setSchedulesLocked($locked, $user) {
+        $config = [
+            'schedules_locked' => (bool)$locked,
+            'schedules_locked_at' => $locked ? date('Y-m-d H:i:s') : null,
+            'schedules_locked_by' => $locked ? $user : null
+        ];
+        return $this->saveGlobalConfig($config, $user);
+    }
+    
+    /**
+     * Get the path to a user's configuration file
+     * 
+     * Sanitizes the username to prevent directory traversal attacks.
      * 
      * @param string $user Username
-     * @return array
+     * @return string Full path to user's config JSON file
+     */
+    private function getUserConfigFile($user) {
+        // Sanitize username - only allow alphanumeric, underscore, hyphen
+        $safeUser = preg_replace('/[^a-zA-Z0-9_-]/', '', $user);
+        return self::CONFIG_DIR . '/users/' . $safeUser . '.json';
+    }
+    
+    /**
+     * Get configuration for a specific user
+     * 
+     * Returns saved settings merged with defaults.
+     * Users who haven't saved settings yet get all defaults.
+     * 
+     * @param string $user Username
+     * @return array User's configuration settings
      */
     public function getUserConfig($user) {
         $configFile = $this->getUserConfigFile($user);
         $defaults = $this->getDefaults();
         
+        // Return defaults if user has no saved config
         if (!file_exists($configFile)) {
             return $defaults;
         }
         
+        // Read and parse user's config file
         $content = file_get_contents($configFile);
         $config = json_decode($content, true);
         
+        // Return defaults if JSON parsing failed
         if (!is_array($config)) {
             return $defaults;
         }
         
+        // Merge saved config over defaults
         return array_merge($defaults, $config);
     }
     
     /**
-     * Save user configuration
+     * Save configuration for a specific user
+     * 
+     * Sanitizes input, merges with existing config, and saves to disk.
+     * Also syncs certain settings to global config for root user.
      * 
      * @param string $user Username
-     * @param array $config Configuration data
-     * @return array Result with success status
+     * @param array $config Configuration key-value pairs to save
+     * @return array Result with 'success' boolean and 'message' string
      */
     public function saveUserConfig($user, $config) {
         $configFile = $this->getUserConfigFile($user);
         
-        // Sanitize configuration
+        // Sanitize all input values for security
         $sanitized = $this->sanitizeConfig($config);
         
-        // Merge with existing config
+        // Merge with existing config (new values override)
         $existing = $this->getUserConfig($user);
         $merged = array_merge($existing, $sanitized);
         $merged['updated_at'] = date('Y-m-d H:i:s');
         
-        // Save user config
+        // Write to disk with pretty formatting
         $result = file_put_contents($configFile, json_encode($merged, JSON_PRETTY_PRINT));
         
         if ($result === false) {
             return ['success' => false, 'message' => 'Failed to save configuration'];
         }
         
+        // Secure the file
         chmod($configFile, 0600);
         
-        // If root user, also sync global settings (debug_mode) to global config
+        // If root user, sync debug_mode to global config
         if ($user === 'root' && isset($sanitized['debug_mode'])) {
             $this->saveGlobalSetting('debug_mode', $sanitized['debug_mode']);
         }
         
-        // Log config update with option names and values
+        // Log config update for audit trail
         if (class_exists('BackBorkLog')) {
-            $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] : (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : (BackBorkBootstrap::isCLI() ? 'cron' : 'local'));
+            $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
+                ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
+                : (isset($_SERVER['REMOTE_ADDR']) 
+                    ? $_SERVER['REMOTE_ADDR'] 
+                    : (BackBorkBootstrap::isCLI() ? 'cron' : 'local'));
+            
+            // Build human-readable list of changes
             $changes = [];
             foreach ($sanitized as $key => $value) {
                 if (is_bool($value)) {
@@ -156,20 +336,26 @@ class BackBorkConfig {
     }
     
     /**
-     * Save a setting to the global config file
+     * Save a single setting to the global config file
      * 
-     * @param string $key Setting key
+     * Used internally to sync certain per-user settings to global config.
+     * 
+     * @param string $key Setting name
      * @param mixed $value Setting value
-     * @return bool Success
+     * @return bool True if saved successfully
      */
     private function saveGlobalSetting($key, $value) {
+        // Load existing global config
         $globalConfig = [];
         if (file_exists(self::GLOBAL_CONFIG_FILE)) {
             $globalConfig = json_decode(file_get_contents(self::GLOBAL_CONFIG_FILE), true) ?: [];
         }
+        
+        // Update the specific setting
         $globalConfig[$key] = $value;
         $globalConfig['updated_at'] = date('Y-m-d H:i:s');
         
+        // Save back to disk
         $result = file_put_contents(self::GLOBAL_CONFIG_FILE, json_encode($globalConfig, JSON_PRETTY_PRINT));
         if ($result !== false) {
             chmod(self::GLOBAL_CONFIG_FILE, 0600);
@@ -179,32 +365,43 @@ class BackBorkConfig {
     }
     
     /**
-     * Get default configuration
+     * Get default values for user configuration
      * 
-     * @return array
+     * These are the settings new users start with.
+     * 
+     * @return array Default user settings
      */
     public function getDefaults() {
         return [
-            'notify_email' => '',
-            'slack_webhook' => '',
-            'notify_success' => true,
-            'notify_failure' => true,
-            'notify_start' => false,
-            'compression_level' => '5',
-            'temp_directory' => '/home/backbork_tmp',
-            'exclude_paths' => '',
-            'default_retention' => 30,
-            'default_schedule' => 'daily',
-            'debug_mode' => false,
+            // Notification settings
+            'notify_email' => '',           // Email for alerts (empty = disabled)
+            'slack_webhook' => '',          // Slack webhook URL (empty = disabled)
+            'notify_success' => true,       // Send notification on successful backup
+            'notify_failure' => true,       // Send notification on failed backup
+            'notify_start' => false,        // Send notification when backup starts
+            
+            // Backup settings
+            'compression_level' => '5',     // Gzip compression level (1-9)
+            'temp_directory' => '/home/backbork_tmp',  // Where to stage backups
+            'exclude_paths' => '',          // Paths to exclude from backup
+            'default_retention' => 30,      // Days to keep backups
+            'default_schedule' => 'daily',  // Default schedule frequency
+            
+            // Debug settings
+            'debug_mode' => false,          // Verbose logging
+            
+            // Metadata
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s')
         ];
     }
     
     /**
-     * Check if debug mode is enabled (global setting)
+     * Check if debug mode is enabled globally
      * 
-     * @return bool
+     * Debug mode enables verbose logging to error_log for troubleshooting.
+     * 
+     * @return bool True if debug mode is on
      */
     public static function isDebugMode() {
         $globalConfig = self::GLOBAL_CONFIG_FILE;
@@ -216,9 +413,12 @@ class BackBorkConfig {
     }
     
     /**
-     * Log debug message if debug mode is enabled
+     * Log a debug message if debug mode is enabled
      * 
-     * @param string $message Debug message
+     * Use this throughout the codebase for troubleshooting output.
+     * Messages only appear in error_log when debug mode is on.
+     * 
+     * @param string $message Debug message to log
      */
     public static function debugLog($message) {
         if (self::isDebugMode()) {
@@ -227,15 +427,18 @@ class BackBorkConfig {
     }
     
     /**
-     * Sanitize configuration input
+     * Sanitize configuration input for security
      * 
-     * @param array $config Input configuration
+     * Validates and cleans all user-provided config values
+     * to prevent injection attacks and invalid data.
+     * 
+     * @param array $config Raw user input
      * @return array Sanitized configuration
      */
     private function sanitizeConfig($config) {
         $sanitized = [];
         
-        // Email
+        // Email - validate format
         if (isset($config['notify_email'])) {
             $email = filter_var($config['notify_email'], FILTER_SANITIZE_EMAIL);
             if (filter_var($email, FILTER_VALIDATE_EMAIL) || empty($email)) {
@@ -243,15 +446,16 @@ class BackBorkConfig {
             }
         }
         
-        // Slack webhook
+        // Slack webhook - validate URL format
         if (isset($config['slack_webhook'])) {
             $webhook = filter_var($config['slack_webhook'], FILTER_SANITIZE_URL);
+            // Only allow Slack webhook URLs or empty
             if (empty($webhook) || preg_match('/^https:\/\/hooks\.slack\.com\//', $webhook)) {
                 $sanitized['slack_webhook'] = $webhook;
             }
         }
         
-        // Booleans
+        // Boolean settings - cast to bool
         $booleans = ['notify_success', 'notify_failure', 'notify_start', 'debug_mode'];
         foreach ($booleans as $key) {
             if (isset($config[$key])) {
@@ -259,7 +463,7 @@ class BackBorkConfig {
             }
         }
         
-        // Compression level
+        // Compression level - validate range 1-9
         if (isset($config['compression_level'])) {
             $level = (int)$config['compression_level'];
             if ($level >= 1 && $level <= 9) {
@@ -267,21 +471,22 @@ class BackBorkConfig {
             }
         }
         
-        // Temp directory
+        // Temp directory - sanitize path characters
         if (isset($config['temp_directory'])) {
             $dir = preg_replace('/[^a-zA-Z0-9_\/\-.]/', '', $config['temp_directory']);
+            // Must be an absolute path
             if (strpos($dir, '/') === 0) {
                 $sanitized['temp_directory'] = $dir;
             }
         }
         
-        // Exclude paths
+        // Exclude paths - sanitize path characters
         if (isset($config['exclude_paths'])) {
             $paths = preg_replace('/[^a-zA-Z0-9_\/\-.\n]/', '', $config['exclude_paths']);
             $sanitized['exclude_paths'] = $paths;
         }
         
-        // Retention
+        // Retention - validate range 1-365 days
         if (isset($config['default_retention'])) {
             $retention = (int)$config['default_retention'];
             if ($retention >= 1 && $retention <= 365) {
@@ -289,7 +494,8 @@ class BackBorkConfig {
             }
         }
         
-        // Pass through all other recognized config keys
+        // Pass through other recognized config keys without modification
+        // These are validated elsewhere or are internal settings
         $passthrough = [
             'mysql_version', 'dbbackup_type', 'compression_option',
             'opt_incremental', 'opt_split', 'opt_use_backups',
@@ -315,47 +521,12 @@ class BackBorkConfig {
     }
     
     /**
-     * Get global configuration (for root only)
+     * Get exclude paths as an array
      * 
-     * @return array
-     */
-    public function getGlobalConfig() {
-        if (!file_exists(self::GLOBAL_CONFIG_FILE)) {
-            return [
-                'max_concurrent_jobs' => 2,
-                'max_queue_size' => 100,
-                'enable_compression' => true,
-                'log_retention_days' => 90
-            ];
-        }
-        
-        $content = file_get_contents(self::GLOBAL_CONFIG_FILE);
-        return json_decode($content, true) ?: [];
-    }
-    
-    /**
-     * Save global configuration (for root only)
-     * 
-     * @param array $config Configuration data
-     * @return array Result
-     */
-    public function saveGlobalConfig($config) {
-        $result = file_put_contents(self::GLOBAL_CONFIG_FILE, json_encode($config, JSON_PRETTY_PRINT));
-        
-        if ($result === false) {
-            return ['success' => false, 'message' => 'Failed to save global configuration'];
-        }
-        
-        chmod(self::GLOBAL_CONFIG_FILE, 0600);
-        
-        return ['success' => true, 'message' => 'Global configuration saved'];
-    }
-    
-    /**
-     * Get exclude paths as array
+     * Parses the newline-separated exclude paths string into an array.
      * 
      * @param string $user Username
-     * @return array
+     * @return array List of paths to exclude from backups
      */
     public function getExcludePaths($user) {
         $config = $this->getUserConfig($user);
@@ -365,13 +536,14 @@ class BackBorkConfig {
             return [];
         }
         
+        // Split by newlines and trim whitespace
         return array_filter(array_map('trim', explode("\n", $paths)));
     }
     
     /**
-     * Get config directory path
+     * Get the base config directory path
      * 
-     * @return string
+     * @return string Path to config directory
      */
     public static function getConfigDir() {
         return self::CONFIG_DIR;

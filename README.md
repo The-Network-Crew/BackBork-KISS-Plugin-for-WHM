@@ -1,20 +1,11 @@
 # 🛡️ BackBork KISS
 
-### Disaster Recovery Backups for WHM — The Simple Way
+### Disaster Recovery for WHM — The Simple Way
 
----
-
-## 🎯 Highlights
-
-> **📦 Simple Backups** — Full account packaging with one click  
-> **🔄 Easy Restores** — Restore full accounts or pick specific components  
-> **⏰ Automated Schedules** — Set it and forget it (hourly/daily/weekly/monthly)  
-> **📧 Smart Notifications** — Email + Slack alerts for success, failure, and cron health  
-> **🔥 Hot Database Backups** — MariaDB-backup support (no table locks!)  
-> **👥 Multi-User Ready** — Root and resellers with separate configs  
-> **🛡️ Self-Monitoring** — Cron health checks with automatic alerts  
-> **🔌 Full JSON API** — Automate everything via authenticated API endpoints  
-> **📝 Audit Logging** — Every action logged with timestamps, users, and IPs  
+> [!CAUTION]
+> This is NOT yet production-ready. TESTING ONLY.
+> 
+> If you want it released sooner, contribute to development!
 
 ---
 

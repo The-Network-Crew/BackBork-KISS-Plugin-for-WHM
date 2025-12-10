@@ -1,7 +1,25 @@
 <?php
 /**
  * BackBork KISS - Queue Processor
- * Processes backup queue items (used by cron)
+ * 
+ * Cron-triggered processor for backup queue items and recurring schedules.
+ * This is the workhorse that actually executes backup and restore jobs.
+ * 
+ * Processing Flow:
+ * 1. Acquire exclusive lock (prevent concurrent runs)
+ * 2. Process schedules - add due schedules to queue
+ * 3. Process queue - execute pending backup/restore jobs
+ * 4. Move completed jobs to completed directory
+ * 5. Release lock
+ * 
+ * Key Features:
+ * - Single-threaded processing (one job at a time)
+ * - Lock file to prevent concurrent execution
+ * - Schedule management (hourly, daily, weekly, monthly)
+ * - "All Accounts" dynamic resolution for schedules
+ * - Job state tracking (queued → running → completed/failed)
+ * - Automatic stale lock cleanup
+ * - Completed job retention management
  *
  * BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  * Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
@@ -27,20 +45,36 @@
 
 class BackBorkQueueProcessor {
     
-    const LOCK_FILE = '/tmp/backbork_queue.lock';
-    const MAX_CONCURRENT = 1; // One backup at a time to prevent overload
+    // ========================================================================
+    // CONSTANTS
+    // ========================================================================
     
-    /** @var BackBorkQueue */
+    /** Lock file path to prevent concurrent processing */
+    const LOCK_FILE = '/tmp/backbork_queue.lock';
+    
+    /** Maximum concurrent backups (keep at 1 to prevent server overload) */
+    const MAX_CONCURRENT = 1;
+    
+    // ========================================================================
+    // PROPERTIES
+    // ========================================================================
+    
+    /** @var BackBorkQueue Queue data manager */
     private $queue;
     
-    /** @var BackBorkBackupManager */
+    /** @var BackBorkBackupManager Backup execution engine */
     private $backupManager;
     
-    /** @var BackBorkConfig */
+    /** @var BackBorkConfig Configuration manager */
     private $config;
     
+    // ========================================================================
+    // CONSTRUCTOR
+    // ========================================================================
+    
     /**
-     * Constructor
+     * Initialize the Queue Processor
+     * Creates instances of required managers
      */
     public function __construct() {
         $this->queue = new BackBorkQueue();
@@ -48,13 +82,20 @@ class BackBorkQueueProcessor {
         $this->config = new BackBorkConfig();
     }
     
+    // ========================================================================
+    // MAIN QUEUE PROCESSING
+    // ========================================================================
+    
     /**
      * Process all pending queue items
      * 
-     * @return array Processing results
+     * Main entry point called by cron. Processes all queued backup/restore
+     * jobs one at a time, tracking success/failure for each.
+     * 
+     * @return array Processing results with counts and account lists
      */
     public function processQueue() {
-        // Acquire lock to prevent concurrent processing
+        // Try to acquire exclusive lock
         if (!$this->acquireLock()) {
             BackBorkConfig::debugLog('processQueue: Failed to acquire lock');
             return [
@@ -74,12 +115,13 @@ class BackBorkQueueProcessor {
             $processedAccounts = [];
             $failedAccounts = [];
             
-            // Get pending items - use root access for processing (cron runs as root)
+            // Get all pending queue items (running as root since cron runs as root)
             $queueData = $this->queue->getQueue('root', true);
             $queuedJobs = isset($queueData['queued']) ? $queueData['queued'] : [];
             
             BackBorkConfig::debugLog('processQueue: Found ' . count($queuedJobs) . ' queued jobs');
             
+            // Nothing to process
             if (empty($queuedJobs)) {
                 $this->releaseLock();
                 return [
@@ -90,6 +132,7 @@ class BackBorkQueueProcessor {
                 ];
             }
             
+            // Process each queued job sequentially
             foreach ($queuedJobs as $item) {
                 $id = $item['id'];
                 $itemAccounts = $item['accounts'] ?? [];
@@ -97,7 +140,7 @@ class BackBorkQueueProcessor {
                 
                 BackBorkConfig::debugLog('processQueue: Processing job ' . $id . ' with status: ' . $itemStatus);
                 
-                // Skip non-queued items (status is 'queued' when created)
+                // Only process jobs with 'queued' status
                 if (!isset($item['status']) || $item['status'] !== 'queued') {
                     BackBorkConfig::debugLog('processQueue: Skipping job ' . $id . ' - status not queued');
                     continue;
@@ -105,7 +148,7 @@ class BackBorkQueueProcessor {
                 
                 BackBorkConfig::debugLog('processQueue: Moving job ' . $id . ' to running');
                 
-                // Move to running directory and mark as processing
+                // Move job to running directory and update status
                 $moveResult = $this->queue->moveJob($id, BackBorkQueue::getQueueDir(), BackBorkQueue::getRunningDir(), [
                     'status' => 'processing',
                     'started_at' => date('Y-m-d H:i:s')
@@ -118,14 +161,15 @@ class BackBorkQueueProcessor {
                 
                 BackBorkConfig::debugLog('processQueue: Executing job ' . $id);
                 
-                // Process the item
+                // Execute the job (backup or restore)
                 $result = $this->processItem($id, $item);
                 $results[$id] = $result;
                 
                 BackBorkConfig::debugLog('processQueue: Job ' . $id . ' result: ' . ($result['success'] ? 'success' : 'failed') . ' - ' . ($result['message'] ?? 'no message'));
                 
+                // Handle job completion
                 if ($result['success']) {
-                    // Move to completed
+                    // Success: move to completed directory
                     $this->queue->moveJob($id, BackBorkQueue::getRunningDir(), BackBorkQueue::getCompletedDir(), [
                         'status' => 'completed',
                         'completed_at' => date('Y-m-d H:i:s'),
@@ -134,7 +178,7 @@ class BackBorkQueueProcessor {
                     $processed++;
                     $processedAccounts = array_merge($processedAccounts, $itemAccounts);
                 } else {
-                    // Move to completed with failed status (or leave in running for retry)
+                    // Failure: move to completed with failed status
                     $this->queue->moveJob($id, BackBorkQueue::getRunningDir(), BackBorkQueue::getCompletedDir(), [
                         'status' => 'failed',
                         'completed_at' => date('Y-m-d H:i:s'),
@@ -147,7 +191,7 @@ class BackBorkQueueProcessor {
             
             $this->releaseLock();
             
-            // Build summary of accounts
+            // Build comprehensive result summary
             $allAccounts = array_merge($processedAccounts, $failedAccounts);
             
             return [
@@ -162,6 +206,7 @@ class BackBorkQueueProcessor {
             ];
             
         } catch (Exception $e) {
+            // Ensure lock is released on error
             $this->releaseLock();
             return [
                 'success' => false,
@@ -171,12 +216,18 @@ class BackBorkQueueProcessor {
         }
     }
     
+    // ========================================================================
+    // ITEM PROCESSING
+    // ========================================================================
+    
     /**
-     * Process a single queue item
+     * Process a single queue item (backup or restore)
+     * 
+     * Routes to appropriate handler based on item type.
      * 
      * @param string $id Queue item ID
      * @param array $item Queue item data
-     * @return array Result
+     * @return array Result with success status and message
      */
     private function processItem($id, $item) {
         $type = $item['type'] ?? 'backup';
@@ -196,8 +247,10 @@ class BackBorkQueueProcessor {
     /**
      * Process a backup queue item
      * 
-     * @param array $item Queue item data
-     * @return array Result
+     * Delegates actual backup execution to BackupManager.
+     * 
+     * @param array $item Queue item data with accounts, destination, user
+     * @return array Result from BackupManager
      */
     private function processBackupItem($item) {
         $accounts = $item['accounts'] ?? [];
@@ -208,14 +261,17 @@ class BackBorkQueueProcessor {
             return ['success' => false, 'message' => 'No accounts specified'];
         }
         
+        // Execute backup via BackupManager
         return $this->backupManager->createBackup($accounts, $destination, $user);
     }
     
     /**
      * Process a restore queue item
      * 
-     * @param array $item Queue item data
-     * @return array Result
+     * Delegates actual restore execution to RestoreManager.
+     * 
+     * @param array $item Queue item data with backup_file, destination, options
+     * @return array Result from RestoreManager
      */
     private function processRestoreItem($item) {
         $backupFile = $item['backup_file'] ?? '';
@@ -227,14 +283,23 @@ class BackBorkQueueProcessor {
             return ['success' => false, 'message' => 'No backup file specified'];
         }
         
+        // Execute restore via RestoreManager
         $restoreManager = new BackBorkRestoreManager();
         return $restoreManager->restoreAccount($backupFile, $destination, $options, $user);
     }
     
+    // ========================================================================
+    // SCHEDULE PROCESSING
+    // ========================================================================
+    
     /**
-     * Process scheduled backups
+     * Process recurring backup schedules
      * 
-     * @return array Results
+     * Checks all schedules for due items and adds them to the queue.
+     * Supports "all accounts" mode which dynamically resolves accounts
+     * based on the schedule owner's accessible accounts.
+     * 
+     * @return array Results with scheduled counts
      */
     public function processSchedules() {
         $schedulesDir = BackBorkQueue::SCHEDULES_DIR;
@@ -246,6 +311,8 @@ class BackBorkQueueProcessor {
 
         $results = [];
         $currentTime = time();
+        
+        // Check each schedule
         foreach ($scheduleFiles as $file) {
             $scheduleId = basename($file, '.json');
             $schedule = json_decode(file_get_contents($file), true);
@@ -253,37 +320,55 @@ class BackBorkQueueProcessor {
                 continue;
             }
             
-            // Skip if explicitly disabled
+            // Skip explicitly disabled schedules
             if (isset($schedule['enabled']) && $schedule['enabled'] === false) {
                 continue;
             }
 
-            // Get schedule type and preferred hour (using correct field names from Queue.php)
+            // Get schedule configuration (support both naming conventions)
             $scheduleType = $schedule['schedule'] ?? $schedule['frequency'] ?? 'daily';
             $preferredHour = $schedule['preferred_time'] ?? $schedule['hour'] ?? 2;
 
-            // Ensure next_run is set; if not, calculate it
+            // Ensure next_run is calculated if missing
             if (empty($schedule['next_run'])) {
                 $schedule['next_run'] = $this->queue->calculateNextRun($scheduleType, $preferredHour);
             }
 
-            // Skip until next_run is reached
+            // Skip if not yet due
             if (strtotime($schedule['next_run']) > $currentTime) {
                 continue;
             }
 
-            // Add to queue
+            // Get schedule parameters
             $accounts = $schedule['accounts'] ?? [];
             $destination = $schedule['destination'] ?? 'local';
             $user = $schedule['user'] ?? 'root';
+            
+            // === HANDLE "ALL ACCOUNTS" MODE ===
+            // Dynamically resolve accounts at runtime based on schedule owner
+            if (!empty($schedule['all_accounts']) || (is_array($accounts) && in_array('*', $accounts))) {
+                // Resolve '*' to actual accounts for this user
+                $acl = new BackBorkACL();
+                $accountsEngine = new BackBorkWhmApiAccounts();
+                $isScheduleOwnerRoot = ($user === 'root');
+                
+                // Get accounts accessible by the schedule owner
+                $accessibleAccounts = $accountsEngine->getAccessibleAccounts($user, $isScheduleOwnerRoot);
+                $accounts = array_column($accessibleAccounts, 'user');
+                
+                BackBorkConfig::debugLog('processSchedules: Resolved all_accounts for ' . $user . ' to ' . count($accounts) . ' accounts');
+            }
+            
+            // Add schedule's backup job to the queue
             $options = ['schedule_id' => $scheduleId];
             $this->queue->addToQueue($accounts, $destination, 'once', $user, $options);
 
-            // Update schedule metadata: last_run, last_status, next_run
+            // Update schedule metadata for next run
             $schedule['last_run'] = date('Y-m-d H:i:s', $currentTime);
             $schedule['last_status'] = 'queued';
             $schedule['next_run'] = $this->queue->calculateNextRun($scheduleType, $preferredHour);
             file_put_contents($file, json_encode($schedule, JSON_PRETTY_PRINT));
+            
             $results[$scheduleId] = 'Queued';
         }
         
@@ -295,49 +380,57 @@ class BackBorkQueueProcessor {
     }
     
     /**
-     * Check if a schedule should run at current time
+     * Check if a schedule should run at the current time
+     * 
+     * Legacy method for time-based schedule matching.
      * 
      * @param array $schedule Schedule configuration
      * @param int $hour Current hour (0-23)
      * @param int $day Current day of month (1-31)
-     * @param int $weekday Current weekday (1-7)
-     * @return bool
+     * @param int $weekday Current weekday (1-7, Mon=1)
+     * @return bool True if schedule should run
      */
     private function shouldRunSchedule($schedule, $hour, $day, $weekday) {
-        // Support both field naming conventions (schedule/frequency, preferred_time/hour)
+        // Support both naming conventions
         $frequency = $schedule['schedule'] ?? $schedule['frequency'] ?? 'daily';
-        $scheduleHour = $schedule['preferred_time'] ?? $schedule['hour'] ?? 2; // Default 2 AM
+        $scheduleHour = $schedule['preferred_time'] ?? $schedule['hour'] ?? 2;
         
-        // For hourly schedules, hour doesn't matter
+        // Hourly schedules run every hour
         if ($frequency === 'hourly') {
             return true;
         }
         
-        // Check hour matches for non-hourly schedules
+        // Non-hourly schedules must match the preferred hour
         if ($hour !== (int)$scheduleHour) {
             return false;
         }
         
         switch ($frequency) {
             case 'daily':
-                return true;
+                return true;  // Daily runs every day at the hour
                 
             case 'weekly':
-                $scheduledDay = $schedule['day_of_week'] ?? 1; // Default Monday
+                $scheduledDay = $schedule['day_of_week'] ?? 1;  // Default Monday
                 return $weekday === (int)$scheduledDay;
                 
             case 'monthly':
-                $scheduledDate = $schedule['day_of_month'] ?? 1;
+                $scheduledDate = $schedule['day_of_month'] ?? 1;  // Default 1st
                 return $day === (int)$scheduledDate;
         }
         
         return false;
     }
     
+    // ========================================================================
+    // STATISTICS & MANAGEMENT
+    // ========================================================================
+    
     /**
      * Get queue statistics
      * 
-     * @return array
+     * Returns counts of jobs in each state.
+     * 
+     * @return array Statistics with counts by status
      */
     public function getStats() {
         $queueData = $this->queue->getQueue('root', true);
@@ -350,13 +443,13 @@ class BackBorkQueueProcessor {
             'failed' => 0
         ];
         
-        // Count queued jobs
+        // Count pending queued jobs
         $stats['queued'] = count($queueData['queued'] ?? []);
         
-        // Count running jobs
+        // Count currently running jobs
         $stats['processing'] = count($queueData['running'] ?? []);
         
-        // Count completed jobs (from completed directory)
+        // Count completed and failed jobs from completed directory
         $completedFiles = glob(BackBorkQueue::getCompletedDir() . '/*.json');
         foreach ($completedFiles as $file) {
             $job = json_decode(file_get_contents($file), true);
@@ -369,13 +462,14 @@ class BackBorkQueueProcessor {
             }
         }
         
+        // Total across all states
         $stats['total'] = $stats['queued'] + $stats['processing'] + $stats['completed'] + $stats['failed'];
         
         return $stats;
     }
     
     /**
-     * Clear completed items from completed directory
+     * Clear successfully completed items from completed directory
      * 
      * @return int Number of items cleared
      */
@@ -386,6 +480,7 @@ class BackBorkQueueProcessor {
         $files = glob($completedDir . '/*.json');
         foreach ($files as $file) {
             $job = json_decode(file_get_contents($file), true);
+            // Only clear successfully completed jobs
             if ($job && isset($job['status']) && $job['status'] === 'completed') {
                 unlink($file);
                 $cleared++;
@@ -407,6 +502,7 @@ class BackBorkQueueProcessor {
         $files = glob($completedDir . '/*.json');
         foreach ($files as $file) {
             $job = json_decode(file_get_contents($file), true);
+            // Only clear failed jobs
             if ($job && isset($job['status']) && $job['status'] === 'failed') {
                 unlink($file);
                 $cleared++;
@@ -418,6 +514,8 @@ class BackBorkQueueProcessor {
     
     /**
      * Retry failed items by moving back to queue
+     * 
+     * Resets failed jobs and moves them back to the queue for reprocessing.
      * 
      * @return int Number of items retried
      */
@@ -431,12 +529,14 @@ class BackBorkQueueProcessor {
             $job = json_decode(file_get_contents($file), true);
             if ($job && isset($job['status']) && $job['status'] === 'failed') {
                 $jobId = $job['id'];
-                // Reset status and move back to queue
+                
+                // Reset job state for retry
                 $job['status'] = 'queued';
                 $job['retried_at'] = date('Y-m-d H:i:s');
-                unset($job['error']);
-                unset($job['completed_at']);
+                unset($job['error']);         // Remove error from previous attempt
+                unset($job['completed_at']);  // Remove completion timestamp
                 
+                // Move back to queue
                 file_put_contents($queueDir . '/' . $jobId . '.json', json_encode($job, JSON_PRETTY_PRINT));
                 chmod($queueDir . '/' . $jobId . '.json', 0600);
                 unlink($file);
@@ -447,10 +547,17 @@ class BackBorkQueueProcessor {
         return $retried;
     }
     
+    // ========================================================================
+    // LOCKING MECHANISMS
+    // ========================================================================
+    
     /**
-     * Acquire processing lock
+     * Acquire exclusive processing lock
      * 
-     * @return bool
+     * Prevents concurrent queue processing. Handles stale locks
+     * (older than 1 hour) and orphaned locks (process no longer running).
+     * 
+     * @return bool True if lock acquired, false if already locked
      */
     private function acquireLock() {
         // Check if lock file exists
@@ -461,56 +568,61 @@ class BackBorkQueueProcessor {
             
             BackBorkConfig::debugLog('acquireLock: Lock file exists, age=' . $lockAge . 's, pid=' . $pid);
             
-            // Check if lock is stale (older than 1 hour)
+            // Remove stale locks (older than 1 hour = likely hung process)
             if ($lockAge > 3600) {
                 BackBorkConfig::debugLog('acquireLock: Removing stale lock (age > 1 hour)');
                 unlink(self::LOCK_FILE);
             }
-            // Check if the process that created the lock is still running
+            // Check if the locking process is still running
             elseif ($pid > 0 && !$this->isProcessRunning($pid)) {
                 BackBorkConfig::debugLog('acquireLock: Removing orphaned lock (pid ' . $pid . ' not running)');
                 unlink(self::LOCK_FILE);
             }
             else {
+                // Lock is valid - another process is running
                 BackBorkConfig::debugLog('acquireLock: Lock is valid, cannot acquire');
                 return false;
             }
         }
         
-        // Create lock
+        // Create lock file with our PID
         $result = file_put_contents(self::LOCK_FILE, getmypid()) !== false;
         BackBorkConfig::debugLog('acquireLock: Created lock file, result=' . ($result ? 'success' : 'failed'));
         return $result;
     }
     
     /**
-     * Check if a process is running
+     * Check if a process is currently running
      * 
-     * @param int $pid Process ID
-     * @return bool
+     * Uses multiple methods for compatibility across systems.
+     * 
+     * @param int $pid Process ID to check
+     * @return bool True if process is running
      */
     private function isProcessRunning($pid) {
         if ($pid <= 0) {
             return false;
         }
         
-        // Linux: check /proc filesystem
+        // Linux: Check /proc filesystem (fastest)
         if (file_exists('/proc/' . $pid)) {
             return true;
         }
         
-        // Fallback: use posix_kill with signal 0 (doesn't actually kill, just checks)
+        // POSIX: Use posix_kill with signal 0 (checks without killing)
         if (function_exists('posix_kill')) {
             return posix_kill($pid, 0);
         }
         
-        // Last resort: use shell command
+        // Fallback: Use shell ps command
         exec('ps -p ' . (int)$pid . ' > /dev/null 2>&1', $output, $returnCode);
         return $returnCode === 0;
     }
     
     /**
-     * Release processing lock
+     * Release the processing lock
+     * 
+     * Called after queue processing completes (success or error).
      */
     private function releaseLock() {
         if (file_exists(self::LOCK_FILE)) {
@@ -519,9 +631,11 @@ class BackBorkQueueProcessor {
     }
     
     /**
-     * Check if processor is currently running
+     * Check if the queue processor is currently running
      * 
-     * @return bool
+     * Public method for status checking. Also cleans up stale/orphaned locks.
+     * 
+     * @return bool True if processor is running
      */
     public function isRunning() {
         if (!file_exists(self::LOCK_FILE)) {
@@ -535,39 +649,46 @@ class BackBorkQueueProcessor {
         
         BackBorkConfig::debugLog('isRunning: Lock file exists, age=' . $lockAge . 's, pid=' . $pid);
         
-        // Check if lock is stale (older than 1 hour)
+        // Check for stale lock
         if ($lockAge > 3600) {
             BackBorkConfig::debugLog('isRunning: Lock is stale (age > 1 hour), cleaning up');
             unlink(self::LOCK_FILE);
             return false;
         }
         
-        // Check if the process is still running
+        // Check if process is actually running
         if ($pid > 0 && $this->isProcessRunning($pid)) {
             BackBorkConfig::debugLog('isRunning: Process ' . $pid . ' is still running');
             return true;
         }
         
-        // Process is not running, clean up the orphaned lock
+        // Process not running - clean up orphaned lock
         BackBorkConfig::debugLog('isRunning: Process ' . $pid . ' not running, cleaning up orphaned lock');
         unlink(self::LOCK_FILE);
         return false;
     }
     
+    // ========================================================================
+    // CLEANUP
+    // ========================================================================
+    
     /**
-     * Cleanup completed jobs older than specified days
+     * Cleanup completed jobs older than specified retention period
      * 
-     * @param int $days Number of days to keep completed jobs
+     * Removes old completed job records to prevent directory bloat.
+     * 
+     * @param int $days Number of days to keep completed jobs (default: 30)
      * @return int Number of jobs cleaned up
      */
     public function cleanupCompletedJobs($days = 30) {
         $completedDir = BackBorkQueue::getCompletedDir();
         $cleaned = 0;
-        $cutoffTime = time() - ($days * 86400);
+        $cutoffTime = time() - ($days * 86400);  // Convert days to seconds
         
         $files = glob($completedDir . '/*.json');
         foreach ($files as $file) {
             $mtime = filemtime($file);
+            // Delete if older than cutoff
             if ($mtime < $cutoffTime) {
                 unlink($file);
                 $cleaned++;

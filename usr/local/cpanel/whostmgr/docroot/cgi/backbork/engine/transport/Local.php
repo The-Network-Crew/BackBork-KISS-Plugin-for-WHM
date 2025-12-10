@@ -25,17 +25,24 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
+/**
+ * Local filesystem transport implementation.
+ * Handles backup storage on local disk (/backup or custom paths).
+ * Implements copy operations for upload/download on local destinations.
+ */
 class BackBorkTransportLocal implements BackBorkTransportInterface {
     
     /**
-     * Upload (copy) a file to local destination
+     * Upload (copy) a file to local destination.
+     * Creates destination directory if needed and copies file.
      * 
-     * @param string $localPath Source file path
+     * @param string $localPath Source file absolute path
      * @param string $remotePath Destination path (relative to destination base)
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param array $destination Destination configuration with 'path' key
+     * @return array Result with success status and destination path
      */
     public function upload($localPath, $remotePath, $destination) {
+        // Verify source file exists
         if (!file_exists($localPath)) {
             return [
                 'success' => false,
@@ -43,11 +50,12 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
             ];
         }
         
+        // Build destination paths
         $basePath = $destination['path'] ?? '/backup';
         $destDir = rtrim($basePath, '/') . '/' . ltrim(dirname($remotePath), '/');
         $destFile = $destDir . '/' . basename($localPath);
         
-        // Create destination directory if needed
+        // Create destination directory if it doesn't exist
         if (!is_dir($destDir)) {
             if (!mkdir($destDir, 0700, true)) {
                 return [
@@ -57,9 +65,9 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
             }
         }
         
-        // Copy file
+        // Copy file to destination with secure permissions
         if (copy($localPath, $destFile)) {
-            chmod($destFile, 0600);
+            chmod($destFile, 0600);  // Read/write owner only
             return [
                 'success' => true,
                 'message' => "Backup saved to: {$destFile}",
@@ -76,17 +84,20 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     }
     
     /**
-     * Download (copy) a file from local destination
+     * Download (copy) a file from local destination.
+     * Copies from destination storage to specified local path.
      * 
-     * @param string $remotePath Source path
-     * @param string $localPath Destination path
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param string $remotePath Source path (relative to destination base)
+     * @param string $localPath Destination path for the copy
+     * @param array $destination Destination configuration with 'path' key
+     * @return array Result with success status and local path
      */
     public function download($remotePath, $localPath, $destination) {
+        // Build full source path
         $basePath = $destination['path'] ?? '/backup';
         $sourcePath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
         
+        // Verify source file exists
         if (!file_exists($sourcePath)) {
             return [
                 'success' => false,
@@ -100,6 +111,7 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
             mkdir($localDir, 0700, true);
         }
         
+        // Copy file
         if (copy($sourcePath, $localPath)) {
             return [
                 'success' => true,
@@ -116,28 +128,31 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     }
     
     /**
-     * List backup files at local destination
+     * List backup files at local destination.
+     * Searches multiple directory levels for cpmove-*.tar.gz files.
      * 
-     * @param string $remotePath Path to list (relative to base)
-     * @param array $destination Destination configuration
-     * @return array List of files
+     * @param string $remotePath Path to list (relative to destination base)
+     * @param array $destination Destination configuration with 'path' key
+     * @return array List of file info arrays sorted by date descending
      */
     public function listFiles($remotePath, $destination) {
         $files = [];
         $basePath = $destination['path'] ?? '/backup';
         $searchPath = rtrim($basePath, '/');
         
+        // Add remote path if specified
         if (!empty($remotePath)) {
             $searchPath .= '/' . ltrim($remotePath, '/');
         }
         
-        // Search for backup files
+        // Search patterns at multiple directory depths
         $patterns = [
-            $searchPath . '/cpmove-*.tar.gz',
-            $searchPath . '/*/cpmove-*.tar.gz',
-            $searchPath . '/*/*/cpmove-*.tar.gz'
+            $searchPath . '/cpmove-*.tar.gz',        // Direct files
+            $searchPath . '/*/cpmove-*.tar.gz',      // One level deep
+            $searchPath . '/*/*/cpmove-*.tar.gz'     // Two levels deep
         ];
         
+        // Search each pattern and collect file info
         foreach ($patterns as $pattern) {
             $found = glob($pattern);
             foreach ($found as $file) {
@@ -152,7 +167,7 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
             }
         }
         
-        // Sort by date descending
+        // Sort by modification time descending (most recent first)
         usort($files, function($a, $b) {
             return $b['mtime'] - $a['mtime'];
         });
@@ -161,20 +176,24 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     }
     
     /**
-     * Delete a file from local destination
+     * Delete a file from local destination.
+     * Removes the specified backup file from storage.
      * 
-     * @param string $remotePath File path (relative to base)
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param string $remotePath File path (relative to destination base)
+     * @param array $destination Destination configuration with 'path' key
+     * @return array Result with success status and message
      */
     public function delete($remotePath, $destination) {
+        // Build full file path
         $basePath = $destination['path'] ?? '/backup';
         $filePath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
         
+        // Verify file exists
         if (!file_exists($filePath)) {
             return ['success' => false, 'message' => 'File not found'];
         }
         
+        // Attempt deletion
         if (unlink($filePath)) {
             return ['success' => true, 'message' => 'File deleted'];
         }
@@ -183,18 +202,21 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     }
     
     /**
-     * Test local destination (check path is writable)
+     * Test local destination accessibility.
+     * Verifies path exists and is writable.
      * 
-     * @param array $destination Destination configuration
-     * @return array Result
+     * @param array $destination Destination configuration with 'path' key
+     * @return array Result with success status and message
      */
     public function testConnection($destination) {
         $path = $destination['path'] ?? '/backup';
         
+        // Check directory exists
         if (!is_dir($path)) {
             return ['success' => false, 'message' => "Path does not exist: {$path}"];
         }
         
+        // Check directory is writable
         if (!is_writable($path)) {
             return ['success' => false, 'message' => "Path not writable: {$path}"];
         }
@@ -203,17 +225,18 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     }
     
     /**
-     * Find backup files for a specific account
+     * Find backup files for a specific account.
+     * Searches common cPanel backup locations for account backups.
      * 
-     * @param string $account Account username
-     * @param array $destination Destination configuration
-     * @return array List of backups
+     * @param string $account Account username to search for
+     * @param array $destination Destination configuration with 'path' key
+     * @return array List of backup files sorted by date descending
      */
     public function findAccountBackups($account, $destination) {
         $backups = [];
         $basePath = $destination['path'] ?? '/backup';
         
-        // Common backup locations
+        // Common cPanel backup directory structures
         $searchDirs = [
             $basePath,
             $basePath . '/cpbackup',
@@ -223,10 +246,11 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
             $basePath . '/' . $account
         ];
         
+        // Search each directory for account backups
         foreach ($searchDirs as $dir) {
             if (!is_dir($dir)) continue;
             
-            // Look for cpmove files
+            // Search for cpmove-<account>*.tar.gz files
             $pattern = $dir . '/cpmove-' . $account . '*.tar.gz';
             $files = glob($pattern);
             
@@ -241,13 +265,14 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
             }
         }
         
-        // Remove duplicates and sort
+        // Remove duplicates based on path
         $unique = [];
         foreach ($backups as $backup) {
             $unique[$backup['path']] = $backup;
         }
         $backups = array_values($unique);
         
+        // Sort by date descending (most recent first)
         usort($backups, function($a, $b) {
             return strtotime($b['date']) - strtotime($a['date']);
         });

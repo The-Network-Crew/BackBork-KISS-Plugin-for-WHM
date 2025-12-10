@@ -14,6 +14,9 @@
     let destinations = [];
     let currentConfig = {};
     let currentLogPage = 1;
+    let isRootUser = false;
+    let schedulesLocked = false;
+    let currentScheduleViewUser = 'all';
 
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
@@ -238,6 +241,43 @@
             if (debugModeEl && data.debug_mode !== undefined) {
                 debugModeEl.checked = data.debug_mode;
             }
+            
+            // Handle global config (root only) or lock status (resellers)
+            if (data._global) {
+                // Root user - has full global config
+                isRootUser = true;
+                schedulesLocked = data._global.schedules_locked || false;
+                
+                // Set schedules lock checkbox
+                const lockEl = document.getElementById('schedules-locked');
+                if (lockEl) {
+                    lockEl.checked = schedulesLocked;
+                }
+                
+                // Populate "View as user" dropdown in schedules
+                const viewUserSelect = document.getElementById('schedule-view-user');
+                if (viewUserSelect && data._users_with_schedules) {
+                    viewUserSelect.innerHTML = '<option value="all">All Users</option>';
+                    // Add root first if they have schedules
+                    if (data._users_with_schedules.includes('root')) {
+                        viewUserSelect.innerHTML += '<option value="root">root</option>';
+                    }
+                    // Add resellers
+                    if (data._resellers) {
+                        data._resellers.forEach(reseller => {
+                            const hasSchedules = data._users_with_schedules.includes(reseller);
+                            viewUserSelect.innerHTML += '<option value="' + reseller + '">' + reseller + (hasSchedules ? '' : ' (no schedules)') + '</option>';
+                        });
+                    }
+                }
+            } else if (data._schedules_locked !== undefined) {
+                // Non-root user - just get lock status
+                isRootUser = false;
+                schedulesLocked = data._schedules_locked;
+                
+                // Update schedule UI based on lock status
+                updateScheduleLockUI();
+            }
         }).catch(err => {
             console.error('Failed to load config', err);
             // Keep currentConfig as-is and show a warning placeholder if present
@@ -354,27 +394,83 @@
             updateStatusMonitor({ queued: [], running: [], restores: [] });
         });
     }
+    
+    // Update Schedule Lock UI (for resellers when locked)
+    function updateScheduleLockUI() {
+        const lockedAlert = document.getElementById('schedules-locked-alert');
+        const createCard = document.getElementById('schedule-create-card');
+        const createBtn = document.getElementById('btn-create-schedule');
+        
+        if (schedulesLocked && !isRootUser) {
+            // Show locked alert
+            if (lockedAlert) lockedAlert.style.display = 'block';
+            // Disable create button
+            if (createBtn) {
+                createBtn.disabled = true;
+                createBtn.innerHTML = '🔒 Schedules Locked';
+            }
+            // Optionally dim the create card
+            if (createCard) createCard.style.opacity = '0.6';
+        } else {
+            // Hide locked alert
+            if (lockedAlert) lockedAlert.style.display = 'none';
+            // Enable create button
+            if (createBtn) {
+                createBtn.disabled = false;
+                createBtn.innerHTML = '⏰ Create Schedule';
+            }
+            if (createCard) createCard.style.opacity = '1';
+        }
+    }
 
     // Load Schedules
     function loadSchedules() {
-        apiCall('get_queue', {}, 'GET').then(data => {
+        // Build request params - include view_user for root
+        let params = {};
+        if (isRootUser && currentScheduleViewUser && currentScheduleViewUser !== 'all') {
+            params.view_user = currentScheduleViewUser;
+        }
+        
+        apiCall('get_queue', params, 'GET').then(data => {
             const tbody = document.getElementById('schedules-tbody');
+            const colCount = isRootUser ? 7 : 6;
+            
+            // Update lock UI in case it changed
+            updateScheduleLockUI();
             
             if (data.schedules && data.schedules.length > 0) {
-                tbody.innerHTML = data.schedules.map(schedule => `
-                    <tr>
-                        <td>${schedule.accounts.join(', ')}</td>
-                        <td>${schedule.destination_name || schedule.destination}</td>
-                        <td>${schedule.schedule}</td>
-                        <td>${schedule.retention} days</td>
-                        <td>${schedule.next_run}</td>
-                        <td>
-                            <button class="btn btn-sm btn-danger" onclick="removeSchedule('${schedule.id}')">Delete</button>
-                        </td>
-                    </tr>
-                `).join('');
+                tbody.innerHTML = data.schedules.map(schedule => {
+                    // Determine if delete button should be disabled
+                    const canDelete = isRootUser || !schedulesLocked;
+                    const deleteBtn = canDelete 
+                        ? '<button class="btn btn-sm btn-danger" onclick="removeSchedule(\'' + schedule.id + '\')">Delete</button>'
+                        : '<button class="btn btn-sm btn-danger" disabled title="Schedules locked by administrator">🔒</button>';
+                    
+                    // Display accounts - show "All Accounts" badge if dynamic
+                    let accountsDisplay;
+                    if (schedule.all_accounts || (schedule.accounts.length === 1 && schedule.accounts[0] === '*')) {
+                        accountsDisplay = '<span class="status-badge" style="background: var(--primary); color: #fff;">🌐 All Accounts</span>';
+                    } else {
+                        accountsDisplay = schedule.accounts.join(', ');
+                    }
+                    
+                    let row = '<tr>' +
+                        '<td>' + accountsDisplay + '</td>' +
+                        '<td>' + (schedule.destination_name || schedule.destination) + '</td>' +
+                        '<td>' + schedule.schedule + '</td>' +
+                        '<td>' + schedule.retention + ' days</td>' +
+                        '<td>' + schedule.next_run + '</td>';
+                    
+                    // Add owner column for root
+                    if (isRootUser) {
+                        row += '<td><span class="status-badge">' + (schedule.user || 'unknown') + '</span></td>';
+                    }
+                    
+                    row += '<td>' + deleteBtn + '</td></tr>';
+                    return row;
+                }).join('');
             } else {
-                tbody.innerHTML = '<tr><td colspan="6">No active schedules.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="' + colCount + '">No active schedules.</td></tr>';
             }
         }).catch(err => {
             console.error('Failed to load schedules', err);
@@ -659,17 +755,51 @@
         }
 
         // Create Schedule
+        // All Accounts toggle for schedules
+        const scheduleAllAccounts = document.getElementById('schedule-all-accounts');
+        if (scheduleAllAccounts) {
+            scheduleAllAccounts.addEventListener('change', function() {
+                const container = document.getElementById('schedule-accounts-container');
+                const selectAll = document.getElementById('select-all-schedule');
+                const hint = document.getElementById('all-accounts-hint');
+                
+                if (this.checked) {
+                    // Dim the account list and uncheck individual selections
+                    if (container) container.style.opacity = '0.4';
+                    if (selectAll) {
+                        selectAll.checked = false;
+                        selectAll.disabled = true;
+                    }
+                    document.querySelectorAll('#schedule-accounts-container .account-checkbox').forEach(cb => {
+                        cb.checked = false;
+                        cb.disabled = true;
+                    });
+                    if (hint) hint.style.display = 'block';
+                } else {
+                    // Restore the account list
+                    if (container) container.style.opacity = '1';
+                    if (selectAll) selectAll.disabled = false;
+                    document.querySelectorAll('#schedule-accounts-container .account-checkbox').forEach(cb => {
+                        cb.disabled = false;
+                    });
+                    if (hint) hint.style.display = 'none';
+                }
+            });
+        }
+
+        // Create Schedule
         const btnCreateSchedule = document.getElementById('btn-create-schedule');
         if (btnCreateSchedule) {
             btnCreateSchedule.addEventListener('click', function() {
-                const selectedAccounts = getSelectedAccounts('schedule-accounts-container');
+                const allAccountsChecked = document.getElementById('schedule-all-accounts')?.checked || false;
+                const selectedAccounts = allAccountsChecked ? ['*'] : getSelectedAccounts('schedule-accounts-container');
                 const destination = document.getElementById('schedule-destination').value;
                 const frequency = document.getElementById('schedule-frequency').value;
                 const retention = document.getElementById('schedule-retention').value;
                 const time = document.getElementById('schedule-time').value;
                 
                 if (selectedAccounts.length === 0) {
-                    alert('Please select at least one account.');
+                    alert('Please select at least one account or enable "All Accounts".');
                     return;
                 }
                 
@@ -683,7 +813,8 @@
                     destination: destination,
                     schedule: frequency,
                     retention: parseInt(retention),
-                    preferred_time: parseInt(time)
+                    preferred_time: parseInt(time),
+                    all_accounts: allAccountsChecked
                 }).then(data => {
                     if (data.success) {
                         alert('Schedule created successfully!');
@@ -815,6 +946,39 @@
         if (logFilter) {
             logFilter.addEventListener('change', function() {
                 loadLogs(1);
+            });
+        }
+        
+        // Schedule View User selector (root only)
+        const scheduleViewUser = document.getElementById('schedule-view-user');
+        if (scheduleViewUser) {
+            scheduleViewUser.addEventListener('change', function() {
+                currentScheduleViewUser = this.value;
+                loadSchedules();
+            });
+        }
+        
+        // Schedules Locked toggle (root only)
+        const schedulesLockedToggle = document.getElementById('schedules-locked');
+        if (schedulesLockedToggle) {
+            schedulesLockedToggle.addEventListener('change', function() {
+                const newLockState = this.checked;
+                
+                apiCall('save_global_config', { schedules_locked: newLockState }).then(data => {
+                    if (data.success) {
+                        schedulesLocked = newLockState;
+                        updateScheduleLockUI();
+                        alert(newLockState ? 'Schedules are now locked for resellers.' : 'Schedules are now unlocked for resellers.');
+                    } else {
+                        // Revert checkbox on failure
+                        schedulesLockedToggle.checked = !newLockState;
+                        alert('Error: ' + (data.message || 'Failed to update lock status'));
+                    }
+                }).catch(err => {
+                    console.error('Error save_global_config', err);
+                    schedulesLockedToggle.checked = !newLockState;
+                    alert('Failed to update lock status: ' + (err.message || 'Unknown error'));
+                });
             });
         }
         

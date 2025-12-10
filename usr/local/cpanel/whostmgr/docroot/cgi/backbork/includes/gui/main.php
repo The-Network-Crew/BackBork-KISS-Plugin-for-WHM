@@ -25,18 +25,29 @@
  * @author The Network Crew Pty Ltd & Velocity Host Pty Ltd
  */
 
-// Prevent direct access
+// ============================================================================
+// SECURITY CHECK - Prevent direct access to template file
+// Must be included through index.php which defines BACKBORK_VERSION
+// ============================================================================
 if (!defined('BACKBORK_VERSION')) {
     die('Access denied');
 }
 ?>
+<!-- ========================================================================
+     BackBork KISS Main Interface Container
+     Renders the complete WHM plugin interface with tabs and panels
+======================================================================== -->
 <div class="backbork-container">
+    <!-- ================================================================
+         HEADER: Logo, version, status monitor, and user badge
+    ================================================================ -->
     <div class="backbork-header">
         <div class="backbork-header-left">
+            <!-- Plugin branding with dynamic version from version.php -->
             <h1><span class="shield-icon">🛡️</span> BackBork KISS <span style="font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 8px;"><code>v<?php echo BACKBORK_VERSION; ?></code></span></h1>
         </div>
         
-        <!-- Status Monitor -->
+        <!-- Status Monitor: Real-time job counts updated via JavaScript polling -->
         <div class="status-monitor">
             <div class="status-item processing" id="status-processing-indicator" style="display: none;">
                 <span class="processing-cog">⚙️</span>
@@ -60,17 +71,23 @@ if (!defined('BACKBORK_VERSION')) {
             </div>
         </div>
         
+        <!-- User badge: Shows current WHM user with Root/Reseller indicator -->
         <div class="user-info">
             <span><?php echo htmlspecialchars($currentUser); ?></span>
             <?php if ($isRoot): ?>
+                <!-- Root users get full access to all features -->
                 <span class="status-badge status-success">Root</span>
             <?php else: ?>
+                <!-- Resellers have ACL-restricted access to their accounts only -->
                 <span class="status-badge status-pending">Reseller</span>
             <?php endif; ?>
         </div>
     </div>
 
-    <!-- Navigation Tabs -->
+    <!-- ================================================================
+         NAVIGATION TABS: Switch between plugin sections
+         Tab switching handled by scripts.js
+    ================================================================ -->
     <div class="backbork-tabs">
         <div class="backbork-tab active" data-tab="backup">📦 Backup</div>
         <div class="backbork-tab" data-tab="restore">🔄 Restore</div>
@@ -80,32 +97,43 @@ if (!defined('BACKBORK_VERSION')) {
         <div class="backbork-tab" data-tab="settings">⚙️ Settings</div>
     </div>
 
-    <!-- Backup Panel -->
+    <!-- ================================================================
+         CONTENT PANELS: Each page is included as a separate template
+         Only one panel is visible at a time (controlled by CSS/JS)
+    ================================================================ -->
+    
+    <!-- Backup Panel: Create ad-hoc backups or queue for later -->
     <?php include(__DIR__ . '/../pages/backup.php'); ?>
 
-    <!-- Restore Panel -->
+    <!-- Restore Panel: Restore accounts from remote destinations -->
     <?php include(__DIR__ . '/../pages/restore.php'); ?>
 
-    <!-- Schedule Panel -->
+    <!-- Schedule Panel: Configure recurring automated backups -->
     <?php include(__DIR__ . '/../pages/schedule.php'); ?>
 
-    <!-- Queue Panel -->
+    <!-- Queue Panel: View and manage pending/running jobs -->
     <?php include(__DIR__ . '/../pages/queue.php'); ?>
 
-    <!-- Logs Panel -->
+    <!-- Logs Panel: Activity history and error tracking -->
     <?php include(__DIR__ . '/../pages/logs.php'); ?>
 
-    <!-- Settings Panel -->
+    <!-- Settings Panel: Notifications, pkgacct options, global config -->
     <?php include(__DIR__ . '/../pages/settings.php'); ?>
 
-    <!-- Footer -->
+    <!-- ================================================================
+         FOOTER: Version info, project links, and copyright
+    ================================================================ -->
     <div class="backbork-footer">
         <div><code>v<?php echo BACKBORK_VERSION; ?></code> <strong>&bull; <a href="https://backbork.com" target="_blank">Open-source Disaster Recovery for WHM</a></strong></div>
         <div><strong>&copy; <a href="https://tnc.works" target="_blank">The Network Crew Pty Ltd</a> & <a href="https://velocityhost.com.au" target="_blank">Velocity Host Pty Ltd</a></strong> 💜</div>
     </div>
 </div>
 
-<!-- Restore Options Modal -->
+<!-- ========================================================================
+     MODAL DIALOGS: Overlay modals for confirmations and warnings
+======================================================================== -->
+
+<!-- Restore Confirmation Modal: Shown before executing a restore -->
 <div id="restore-modal" class="modal-overlay">
     <div class="modal-content">
         <div class="modal-header">

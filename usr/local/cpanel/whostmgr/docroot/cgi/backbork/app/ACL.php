@@ -1,7 +1,23 @@
 <?php
 /**
  * BackBork KISS - ACL Handler
- * Manages access control for resellers and root users
+ * 
+ * Access Control List management for WHM resellers and root users.
+ * Handles authentication detection, permission checking, and account access.
+ * 
+ * User Types:
+ * - Root: Full access to all accounts and features
+ * - Reseller: Access limited to owned accounts and permitted features
+ * 
+ * Permission Sources:
+ * - WHM REMOTE_USER environment variable (set by WHM authentication)
+ * - /var/cpanel/resellers file (ACL permissions per reseller)
+ * 
+ * Key Responsibilities:
+ * - Detect current authenticated user
+ * - Check ACL permissions (list-accts, etc.)
+ * - Determine accessible accounts per user
+ * - Support root viewing other users' schedules
  *
  * BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  * Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
@@ -27,62 +43,97 @@
 
 class BackBorkACL {
     
+    // ========================================================================
+    // PROPERTIES
+    // ========================================================================
+    
+    /** @var string Current authenticated username */
     private $currentUser;
+    
+    /** @var bool Whether current user is root */
     private $isRoot;
+    
+    /** @var array ACL permissions for current user */
     private $userACLs = [];
     
+    // ========================================================================
+    // CONSTRUCTOR
+    // ========================================================================
+    
     /**
-     * Constructor - Initialize ACL checking
+     * Initialize ACL system
+     * Detects current user and loads their permissions
      */
     public function __construct() {
+        // Detect who is logged in via WHM environment
         $this->currentUser = $this->detectCurrentUser();
+        
+        // Root check - root has full access to everything
         $this->isRoot = ($this->currentUser === 'root');
+        
+        // Load ACL permissions for non-root users
         $this->loadUserACLs();
     }
     
+    // ========================================================================
+    // USER DETECTION
+    // ========================================================================
+    
     /**
      * Detect the current authenticated user from WHM environment
-     * Uses getenv() exactly like the WHM.php library does
      * 
-     * @return string
+     * Uses getenv() to read REMOTE_USER, which is set by WHM's
+     * authentication system. This matches cPanel's WHM.php library.
+     * 
+     * @return string Username of current user
      */
     private function detectCurrentUser() {
-        // Use getenv() exactly like WHM.php library does
+        // Primary method: WHM sets REMOTE_USER after authentication
         $user = getenv('REMOTE_USER');
         
         if ($user) {
             return $user;
         }
         
-        // If running from CLI (cron), default to root
+        // CLI mode (cron jobs): Default to root since cron runs as root
         if (php_sapi_name() === 'cli' || !isset($_SERVER['REQUEST_METHOD'])) {
             return 'root';
         }
         
-        // Default to root for WHM access - the ACL system will handle permissions
-        // This handles edge cases where REMOTE_USER might not be set
+        // Fallback: Default to root for WHM access
+        // The ACL system will still enforce permissions appropriately
         return 'root';
     }
     
     /**
-     * Load ACLs for the current user from /var/cpanel/resellers
+     * Load ACL permissions for the current user from cPanel's resellers file
+     * 
+     * Root users get 'all' permissions automatically.
+     * Resellers get permissions from /var/cpanel/resellers.
+     * 
+     * File format: username:acl1,acl2,acl3,...
      */
     private function loadUserACLs() {
+        // Root has all permissions - no need to load from file
         if ($this->isRoot) {
             $this->userACLs = ['all'];
             return;
         }
         
+        // Resellers file contains ACL mappings
         $resellersFile = '/var/cpanel/resellers';
         if (!file_exists($resellersFile)) {
             return;
         }
         
+        // Parse resellers file to find current user's permissions
         $content = file_get_contents($resellersFile);
         $lines = explode("\n", $content);
         
         foreach ($lines as $line) {
+            // Look for line starting with current user
             if (preg_match("/^{$this->currentUser}:/", $line)) {
+                // Extract ACL list after the colon
                 $line = preg_replace("/^{$this->currentUser}:/", "", $line);
                 $this->userACLs = explode(",", trim($line));
                 break;
@@ -90,10 +141,14 @@ class BackBorkACL {
         }
     }
     
+    // ========================================================================
+    // USER ACCESSORS
+    // ========================================================================
+    
     /**
-     * Get current user
+     * Get current authenticated user's username
      * 
-     * @return string
+     * @return string Username
      */
     public function getCurrentUser() {
         return $this->currentUser;
@@ -102,93 +157,115 @@ class BackBorkACL {
     /**
      * Check if current user is root
      * 
-     * @return bool
+     * @return bool True if root
      */
     public function isRoot() {
         return $this->isRoot;
     }
     
+    // ========================================================================
+    // PERMISSION CHECKING
+    // ========================================================================
+    
     /**
-     * Check if user has a specific ACL permission
+     * Check if current user has a specific ACL permission
      * 
-     * @param string $acl ACL to check
-     * @return bool
+     * @param string $acl ACL permission name (e.g., 'list-accts')
+     * @return bool True if user has permission
      */
     public function hasAccess($acl) {
+        // Root always has access
         if ($this->isRoot) {
             return true;
         }
         
+        // Check for 'all' permission (grants everything)
         if (in_array('all', $this->userACLs)) {
             return true;
         }
         
+        // Check for specific permission
         return in_array($acl, $this->userACLs);
     }
     
     /**
-     * Check ACL using the same logic as WHM PHP example
+     * Check ACL permission using WHM PHP library pattern
      * 
-     * @param string $acl ACL to check
+     * Returns 1/0 instead of bool for compatibility with
+     * cPanel's standard checkacl() pattern.
+     * 
+     * @param string $acl ACL permission name
      * @return int 1 if allowed, 0 if denied
      */
     public function checkacl($acl) {
+        // Root always allowed
         if ($this->currentUser === 'root') {
             return 1;
         }
         
+        // Read resellers file for permission check
         $resellersFile = '/var/cpanel/resellers';
         if (!file_exists($resellersFile)) {
             return 0;
         }
         
+        // Parse file to check permissions
         $reseller = file_get_contents($resellersFile);
         foreach (explode("\n", $reseller) as $line) {
+            // Find current user's line
             if (preg_match("/^{$this->currentUser}:/", $line)) {
                 $line = preg_replace("/^{$this->currentUser}:/", "", $line);
+                // Check each permission
                 foreach (explode(",", $line) as $perm) {
                     if ($perm === 'all' || $perm === $acl) {
-                        return 1;
+                        return 1;  // Permission granted
                     }
                 }
             }
         }
         
-        return 0;
+        return 0;  // Permission denied
     }
     
+    // ========================================================================
+    // ACCOUNT ACCESS
+    // ========================================================================
+    
     /**
-     * Get list of accounts the current user can access
-     * Root can access all, resellers can only access their own accounts
+     * Get list of cPanel accounts the current user can access
      * 
-     * @return array
+     * Root sees all accounts on the server.
+     * Resellers see only accounts they own.
+     * 
+     * @return array Array of account info arrays
      */
     public function getAccessibleAccounts() {
-        // Delegate to the WHM API engine
+        // Delegate to WHM API engine for account listing
         $accountsEngine = new BackBorkWhmApiAccounts();
         return $accountsEngine->getAccessibleAccounts($this->currentUser, $this->isRoot);
     }
     
     /**
-     * Check if user can access a specific account
+     * Check if current user can access a specific account
      * 
-     * @param string $account Account username
-     * @return bool
+     * @param string $account Account username to check
+     * @return bool True if user can access account
      */
     public function canAccessAccount($account) {
+        // Root can access all accounts
         if ($this->isRoot) {
             return true;
         }
         
-        // Use WHM API engine to check account ownership
+        // Check if reseller owns this account via WHM API
         $accountsEngine = new BackBorkWhmApiAccounts();
         return $accountsEngine->isAccountOwnedBy($account, $this->currentUser);
     }
     
     /**
-     * Get reseller's owned domains count
+     * Get count of accounts the current user owns
      * 
-     * @return int
+     * @return int Number of accessible accounts
      */
     public function getOwnedAccountsCount() {
         $accounts = $this->getAccessibleAccounts();
@@ -196,21 +273,106 @@ class BackBorkACL {
     }
     
     /**
-     * Validate that user has backup-related permissions
+     * Validate that user has required backup-related permissions
      * 
-     * @return bool
+     * BackBork requires 'list-accts' ACL which is configured in appconfig.
+     * 
+     * @return bool True if user can perform backups
      */
     public function canPerformBackups() {
-        // Check for list-accts which we require in appconfig
+        // Check for list-accts permission required by BackBork
         return $this->hasAccess('list-accts');
     }
     
     /**
-     * Get user's ACL list
+     * Get current user's full ACL permission list
      * 
-     * @return array
+     * @return array Array of ACL permission names
      */
     public function getUserACLs() {
         return $this->userACLs;
+    }
+    
+    // ========================================================================
+    // ADMIN UTILITIES (ROOT ONLY)
+    // ========================================================================
+    
+    /**
+     * Get list of all resellers on the server
+     * 
+     * Only available to root. Reads from /var/cpanel/resellers.
+     * Used for admin UI to show reseller selector.
+     * 
+     * @return array List of reseller usernames (sorted)
+     */
+    public function getResellers() {
+        // Security: Only root can see reseller list
+        if (!$this->isRoot) {
+            return [];
+        }
+        
+        $resellers = [];
+        $resellersFile = '/var/cpanel/resellers';
+        
+        if (!file_exists($resellersFile)) {
+            return $resellers;
+        }
+        
+        // Parse resellers file
+        $content = file_get_contents($resellersFile);
+        $lines = explode("\n", $content);
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+            
+            // Format: username:acl1,acl2,acl3
+            if (preg_match('/^([^:]+):/', $line, $matches)) {
+                $username = $matches[1];
+                // Skip root if it appears in resellers file
+                if ($username !== 'root') {
+                    $resellers[] = $username;
+                }
+            }
+        }
+        
+        // Sort alphabetically for consistent UI display
+        sort($resellers);
+        return $resellers;
+    }
+    
+    /**
+     * Get list of users who have created backup schedules
+     * 
+     * Only available to root. Scans schedules directory.
+     * Used for admin UI to show users with active schedules.
+     * 
+     * @return array List of usernames with schedules
+     */
+    public function getUsersWithSchedules() {
+        // Security: Only root can see this list
+        if (!$this->isRoot) {
+            return [];
+        }
+        
+        $users = [];
+        $schedulesDir = '/usr/local/cpanel/3rdparty/backbork/schedules';
+        
+        if (!is_dir($schedulesDir)) {
+            return $users;
+        }
+        
+        // Scan all schedule files for unique users
+        $scheduleFiles = glob($schedulesDir . '/*.json');
+        foreach ($scheduleFiles as $file) {
+            $schedule = json_decode(file_get_contents($file), true);
+            if ($schedule && isset($schedule['user'])) {
+                // Use array key to deduplicate
+                $users[$schedule['user']] = true;
+            }
+        }
+        
+        // Return just the usernames
+        return array_keys($users);
     }
 }
