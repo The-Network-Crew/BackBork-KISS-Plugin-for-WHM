@@ -1179,7 +1179,7 @@
         return Array.from(checkboxes).map(cb => cb.value);
     }
 
-    // Start Backup
+    // Start Backup with real-time log tailing
     function startBackup(accounts, destination) {
         const progressCard = document.getElementById('backup-progress');
         const progressBar = document.getElementById('backup-progress-bar');
@@ -1187,37 +1187,115 @@
         const logDiv = document.getElementById('backup-log');
         
         progressCard.style.display = 'block';
-        progressBar.style.width = '0%';
+        progressBar.style.width = '5%';
         statusMessage.innerHTML = '<div class="loading-spinner"></div> Starting backup...';
-        logDiv.innerHTML = '';
+        logDiv.innerHTML = '<pre class="backup-log-output" style="background: var(--terminal-bg); color: var(--terminal-text); padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></pre>';
         
+        const logOutput = logDiv.querySelector('.backup-log-output');
+        let backupId = null;
+        let logOffset = 0;
+        let pollInterval = null;
+        
+        // Function to poll for log updates
+        function pollBackupLog() {
+            if (!backupId) return;
+            
+            apiCall('get_backup_log', { backup_id: backupId, offset: logOffset }, 'GET')
+                .then(data => {
+                    if (data.success && data.content) {
+                        // Append new content
+                        logOutput.textContent += data.content;
+                        logOffset = data.offset;
+                        
+                        // Auto-scroll to bottom
+                        logOutput.scrollTop = logOutput.scrollHeight;
+                        
+                        // Update progress bar based on log content
+                        const text = logOutput.textContent.toLowerCase();
+                        if (text.includes('step 1/5')) progressBar.style.width = '10%';
+                        else if (text.includes('step 2/5')) progressBar.style.width = '20%';
+                        else if (text.includes('step 3/5')) progressBar.style.width = '30%';
+                        else if (text.includes('[3b]') || text.includes('pkgacct')) progressBar.style.width = '40%';
+                        else if (text.includes('[3c]') || text.includes('database')) progressBar.style.width = '50%';
+                        else if (text.includes('[3d]') || text.includes('uploading')) progressBar.style.width = '60%';
+                        else if (text.includes('[3e]') || text.includes('cleanup')) progressBar.style.width = '75%';
+                        else if (text.includes('step 4/5')) progressBar.style.width = '85%';
+                        else if (text.includes('step 5/5')) progressBar.style.width = '95%';
+                    }
+                    
+                    // Check if complete
+                    if (data.complete) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                        
+                        // Check final status
+                        if (logOutput.textContent.includes('BACKUP COMPLETED SUCCESSFULLY')) {
+                            progressBar.style.width = '100%';
+                            statusMessage.innerHTML = '<span class="status-badge status-success">✓ Backup completed successfully!</span>';
+                        } else if (logOutput.textContent.includes('BACKUP FAILED')) {
+                            progressBar.style.width = '100%';
+                            progressBar.style.background = 'var(--danger)';
+                            statusMessage.innerHTML = '<span class="status-badge status-error">✗ Backup failed</span>';
+                        }
+                        
+                        // Refresh the queue
+                        loadQueue();
+                    }
+                })
+                .catch(err => {
+                    console.error('Error polling backup log:', err);
+                });
+        }
+        
+        // Start the backup
         apiCall('create_backup', {
             accounts: accounts,
             destination: destination
         }).then(data => {
-            if (data.success) {
-                progressBar.style.width = '100%';
-                statusMessage.innerHTML = '<span class="status-badge status-success">Backup completed!</span>';
-                logDiv.textContent = data.log || 'Backup job submitted successfully.';
+            if (data.backup_id) {
+                backupId = data.backup_id;
+                statusMessage.innerHTML = '<div class="loading-spinner"></div> Backup in progress...';
+                progressBar.style.width = '10%';
+                
+                // Always poll from offset 0 to get full log
+                logOffset = 0;
+                
+                // Start polling for log updates (every 500ms)
+                pollInterval = setInterval(pollBackupLog, 500);
+                
+                // Also do immediate poll
+                pollBackupLog();
+            }
+            
+            // Handle immediate completion (no backup_id means early failure)
+            if (data.success !== undefined && !data.backup_id) {
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                }
+                
+                if (data.success) {
+                    progressBar.style.width = '100%';
+                    statusMessage.innerHTML = '<span class="status-badge status-success">✓ Backup completed successfully!</span>';
+                    logOutput.textContent = data.log || 'Backup completed.';
+                } else {
+                    progressBar.style.width = '100%';
+                    progressBar.style.background = 'var(--danger)';
+                    statusMessage.innerHTML = '<span class="status-badge status-error">✗ Backup failed</span>';
+                    let errorOutput = '';
+                    if (data.message) errorOutput += data.message + '\n\n';
+                    if (data.errors && data.errors.length > 0) errorOutput += 'Errors:\n' + data.errors.join('\n') + '\n\n';
+                    if (data.log) errorOutput += 'Log:\n' + data.log;
+                    logOutput.textContent = errorOutput || 'Unknown error occurred.';
+                }
                 loadQueue();
-            } else {
-                statusMessage.innerHTML = '<span class="status-badge status-error">Backup failed</span>';
-                // Show detailed error information
-                let errorOutput = '';
-                if (data.message) {
-                    errorOutput += data.message + '\n\n';
-                }
-                if (data.errors && data.errors.length > 0) {
-                    errorOutput += 'Errors:\n' + data.errors.join('\n') + '\n\n';
-                }
-                if (data.log) {
-                    errorOutput += 'Log:\n' + data.log;
-                }
-                logDiv.textContent = errorOutput || 'Unknown error occurred.';
             }
         }).catch(err => {
-            statusMessage.innerHTML = '<span class="status-badge status-error">Error</span>';
-            logDiv.textContent = 'Request failed: ' + (err.message || JSON.stringify(err));
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+            statusMessage.innerHTML = '<span class="status-badge status-error">✗ Error</span>';
+            logOutput.textContent = 'Error: ' + err.message;
         });
     }
 
@@ -1353,8 +1431,9 @@
                     const filename = backup.display_name || backup.file;
                     const timestamp = formatBackupTimestamp(filename);
                     const size = backup.size || 'Unknown size';
-                    // Format: timestamp (size) - filename
-                    select.innerHTML += `<option value="${backup.file}">${timestamp} (${size}) - ${filename}</option>`;                });
+                    // Format: timestamp « size » filename
+                    select.innerHTML += `<option value="${backup.file}">${timestamp}   «   ${size}   »   ${filename}</option>`;
+                });
             } else {
                 select.innerHTML = '<option value="">No backups found</option>';
             }

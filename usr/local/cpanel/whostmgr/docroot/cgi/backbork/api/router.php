@@ -862,6 +862,50 @@ switch ($action) {
         ]);
         break;
     
+    /**
+     * Get backup log content for real-time progress viewing
+     * Used for tailing backup output during long operations
+     */
+    case 'get_backup_log':
+        $backupId = isset($_GET['backup_id']) ? $_GET['backup_id'] : '';
+        $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+        
+        // Validate backup_id format (security)
+        if (!preg_match('/^backup_[0-9]+_[a-f0-9]+$/', $backupId)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid backup ID']);
+            break;
+        }
+        
+        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/' . $backupId . '.log';
+        
+        if (!file_exists($logFile)) {
+            echo json_encode(['success' => false, 'message' => 'Log file not found', 'content' => '', 'offset' => 0, 'complete' => false]);
+            break;
+        }
+        
+        // Read log content from offset
+        $content = '';
+        $fileSize = filesize($logFile);
+        
+        if ($offset < $fileSize) {
+            $handle = fopen($logFile, 'r');
+            fseek($handle, $offset);
+            $content = fread($handle, $fileSize - $offset);
+            fclose($handle);
+        }
+        
+        // Check if backup is complete (look for completion markers)
+        $isComplete = (strpos(file_get_contents($logFile), 'BACKUP COMPLETED SUCCESSFULLY') !== false) ||
+                      (strpos(file_get_contents($logFile), 'BACKUP FAILED') !== false);
+        
+        echo json_encode([
+            'success' => true,
+            'content' => $content,
+            'offset' => $fileSize,
+            'complete' => $isComplete
+        ]);
+        break;
+    
     // ========================================================================
     // CRON STATUS
     // ========================================================================

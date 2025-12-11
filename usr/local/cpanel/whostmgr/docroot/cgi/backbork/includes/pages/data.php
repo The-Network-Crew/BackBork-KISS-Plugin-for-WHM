@@ -71,10 +71,5 @@
                 </div>
             </div>
         </div>
-        
-        <!-- Info note about remote destinations -->
-        <div class="alert alert-info" style="margin-top: 20px;">
-            <strong>Note:</strong> Deletion is only available for Local destinations. Remote backups (SFTP/FTP) must be managed on the remote storage system.
-        </div>
     </div>
 </div>

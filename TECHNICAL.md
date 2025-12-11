@@ -417,8 +417,15 @@ backbork/
 
 ## 📤 Backup Flow
 
+BackBork provides real-time progress logging throughout the backup process. Each step is logged to a unique backup log file that can be polled for live updates.
+
 ```
 👆 User clicks "Backup"
+         │
+         ▼
+    ┌─────────┐
+    │ 📝 Log  │  Create backup_<timestamp>_<id>.log
+    └────┬────┘
          │
          ▼
     ┌─────────┐
@@ -427,46 +434,58 @@ backbork/
          │
          ▼
     ┌─────────┐
-    │ ⚙️ Config│  Load user's backup settings
+    │ ✅ Dest │  [STEP 1/5] Validate destination
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ 📧 Start│  Send notification (if enabled)
+    │ 📧 Start│  [STEP 2/5] Send notification (if enabled)
+    └────┬────┘
+         │
+         ▼
+    ┌─────────────────────────────────────────┐
+    │ 📦 [STEP 3/5] Process Each Account      │
+    │                                         │
+    │  [3a] Prepare environment               │
+    │  [3b] Run pkgacct                       │
+    │  [3c] Hot DB backup (if configured)     │
+    │  [3d] Upload to destination             │
+    │  [3e] Cleanup temp files                │
+    └────┬────────────────────────────────────┘
+         │
+         ▼
+    ┌─────────┐
+    │ 📊 Sum  │  [STEP 4/5] Summary (success/fail counts)
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ 📦 Pack │  pkgacct [options] account /tmp/
-    └────┬────┘
-         │
-         ▼
-    ┌─────────┐
-    │ 📝 Name │  Add timestamp to filename
-    └────┬────┘
-         │
-         ▼
-    ┌─────────┐
-    │ 📤 Send │  cpbackup_transport_file --upload
-    └────┬────┘
-         │
-         ▼
-    ┌─────────┐
-    │ 🧹 Clean│  Remove temp file
-    └────┬────┘
-         │
-         ▼
-    ┌─────────┐
-    │ 📧 Done │  Send success/failure notification
+    │ 📧 Done │  [STEP 5/5] Send completion notification
     └─────────┘
 ```
+
+### Backup Log File
+
+Each backup creates a log file at:
+```
+/usr/local/cpanel/3rdparty/backbork/logs/backup_<timestamp>_<id>.log
+```
+
+The UI polls this file in real-time using `GET ?action=get_backup_log&backup_id=<id>&offset=<bytes>` to show live progress.
 
 ---
 
 ## 📥 Restore Flow
 
+BackBork provides real-time progress logging throughout the restore process with detailed step-by-step updates.
+
 ```
 👆 User clicks "Restore"
+         │
+         ▼
+    ┌─────────┐
+    │ 📝 Log  │  Create restore_<timestamp>_<id>.log
+    └────┬────┘
          │
          ▼
     ┌─────────┐
@@ -475,22 +494,27 @@ backbork/
          │
          ▼
     ┌─────────┐
-    │ 📋 Track│  Create restore tracker
+    │ 📥 Fetch│  [STEP 1/8] Download from remote (if needed)
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ 📥 Fetch│  Download from remote (if needed)
+    │ ✅ Verify│ [STEP 2/8] Check backup file integrity
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ ✅ Verify│  Check backup file integrity
+    │ 🗄️ DB  │  [STEP 3/8] Check for hot DB backup file
+    └────┬────┘
+         │
+         ▼
+    ┌─────────┐
+    │ 📧 Start│  [STEP 4/8] Send start notification
     └────┬────┘
          │
          ▼
     ┌──────────────────────────┐
-    │ 🔄 Restore               │
+    │ 🔄 [STEP 5/8] Restore    │
     │                          │
     │ Full: restorepkg         │
     │ Selective: restore_mgr   │
@@ -498,14 +522,28 @@ backbork/
          │
          ▼
     ┌─────────┐
-    │ 🧹 Clean│  Remove downloaded temp file
+    │ 🗄️ DB  │  [STEP 6/8] Restore hot DB data (if exists)
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ 📧 Done │  Send notification
+    │ 🧹 Clean│  [STEP 7/8] Remove downloaded temp files
+    └────┬────┘
+         │
+         ▼
+    ┌─────────┐
+    │ 📧 Done │  [STEP 8/8] Send completion notification
     └─────────┘
 ```
+
+### Restore Log File
+
+Each restore creates a log file at:
+```
+/usr/local/cpanel/3rdparty/backbork/logs/restore_<timestamp>_<id>.log
+```
+
+The UI polls this file in real-time using `GET ?action=get_restore_log&restore_id=<id>&offset=<bytes>` to show live progress.
 
 > [!NOTE]
 > Downloaded backup files are automatically cleaned up after restore completes (success or failure). The cron job also runs `cleanupTempFiles(24)` to catch any orphaned files older than 24 hours.

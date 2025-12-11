@@ -759,14 +759,6 @@ class BackBorkQueueProcessor {
                 continue;
             }
             
-            // Remote destinations (SFTP/FTP) don't support listing or deletion via cpbackup_transport
-            // Pruning must be managed on the remote storage system
-            $destType = strtolower($destination['type'] ?? '');
-            if ($destType === 'sftp' || $destType === 'ftp') {
-                $results[$scheduleId] = ['skipped' => true, 'reason' => 'remote destination (pruning not supported)'];
-                continue;
-            }
-            
             // Get accounts in this schedule (may be dynamic for all_accounts)
             $accounts = $schedule['accounts'] ?? [];
             
@@ -827,12 +819,11 @@ class BackBorkQueueProcessor {
      * If backup count <= retention count, nothing is deleted.
      * This is inherently safe during backup failures.
      * 
-     * NOTE: Only works for Local destinations. Remote destinations (SFTP/FTP)
-     * are skipped at the schedule level since cpbackup_transport doesn't
-     * support listing or deletion.
+     * Supports both Local and Remote (SFTP/FTP) destinations via the
+     * Native transport layer which uses cPanel's Cpanel::Transport::Files.
      * 
      * @param string $account Account username
-     * @param array $destination Destination configuration (Local only)
+     * @param array $destination Destination configuration
      * @param int $retentionCount Number of backups to keep
      * @param BackBorkDestinationsValidator $validator Validator instance for transport
      * @return array ['count' => int, 'files' => array] Number of backups pruned and list of deleted files

@@ -87,10 +87,10 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     <div class="backbork-card">
         <h3>Destination Configuration</h3>
         <div class="alert alert-info">
-            BackBork uses the remote destinations configured in WHM's Backup Configuration.<br><br>
-            Add or manage your SFTP/FTP destinations there, then use BackBork to run backup and restore jobs to those destinations.<br><br>
-            <strong>Note:</strong> When creating, enable System Backups to the destination & disable only using it for Log Backups.<br><br>
-            <strong>Then:</strong> You need to Validate the Destination, and once passed, you need to Enable the Destination as well.
+            <strong>BackBork uses the remote destinations configured in WHM's Backup Configuration > Destinations.</strong><br><br>
+            Add or manage your SFTP/FTP destinations there, then use BackBork to run backup and restore jobs to them.<br><br>
+            <strong>Note:</strong> When creating, enable System Backups to the destination & disable using it for Logs.<br><br>
+            <strong>Then:</strong> You need to Validate the Destination, and then Enable the Destination as well.
         </div>
         <a href="../../scripts/backup_configuration/destinations" target="_blank" class="btn btn-primary">
             📁 Open Backup Configuration (Destinations)

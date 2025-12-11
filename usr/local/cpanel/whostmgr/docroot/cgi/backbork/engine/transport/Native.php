@@ -291,24 +291,55 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             ];
         }
         
-        // Build command
+        // Build full remote path consistently with download() method
+        // Path structure: {base_path}/manual_backup/{filename}
+        $basePath = isset($destination['path']) ? trim($destination['path'], '/') : '';
+        $deletePath = $remotePath;
+        
+        // Prepend manual_backup if not already present
+        if (strpos($deletePath, 'manual_backup/') !== 0 && strpos($deletePath, 'manual_backup') !== 0) {
+            $deletePath = 'manual_backup/' . ltrim($deletePath, '/');
+        }
+        
+        // Prepend base path if configured
+        if (!empty($basePath)) {
+            $deletePath = $basePath . '/' . $deletePath;
+        }
+        
+        BackBorkConfig::debugLog("Native::delete: input='$remotePath' fullPath='$deletePath' destination=" . ($destination['id'] ?? 'unknown'));
+        
+        // Build command - pass the fully constructed path to Perl
+        // The Perl script should NOT add any prefixes since we're passing the complete path
         $cmd = '/usr/local/cpanel/3rdparty/bin/perl ' . escapeshellarg(self::PERL_HELPER) .
                ' --action=delete' .
                ' --transport=' . escapeshellarg($destination['id']) .
-               ' --path=' . escapeshellarg($remotePath);
+               ' --path=' . escapeshellarg($deletePath) .
+               ' 2>&1';
+        
+        BackBorkConfig::debugLog("Native::delete: cmd=$cmd");
         
         // Execute and capture output
         $output = [];
         $returnCode = 0;
-        exec($cmd . ' 2>&1', $output, $returnCode);
+        exec($cmd, $output, $returnCode);
         
         $jsonOutput = implode("\n", $output);
-        $result = json_decode($jsonOutput, true);
+        BackBorkConfig::debugLog("Native::delete: returnCode=$returnCode");
+        BackBorkConfig::debugLog("Native::delete: full output=" . $jsonOutput);
+        
+        // Try to extract JSON from output (may have warnings before it)
+        $result = null;
+        if (preg_match('/\{[^{}]*"success"[^{}]*\}/', $jsonOutput, $matches)) {
+            $result = json_decode($matches[0], true);
+        } else {
+            $result = json_decode($jsonOutput, true);
+        }
         
         if (!$result || !isset($result['success'])) {
+            BackBorkConfig::debugLog("Delete transport helper failed. Output: " . $jsonOutput);
             return [
                 'success' => false,
-                'message' => 'Invalid response from transport helper'
+                'message' => 'Invalid response from transport helper: ' . substr($jsonOutput, 0, 200)
             ];
         }
         

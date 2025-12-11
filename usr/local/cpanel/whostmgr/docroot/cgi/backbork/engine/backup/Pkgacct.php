@@ -144,9 +144,10 @@ class BackBorkPkgacct {
      * @param string $account Account username to backup
      * @param string $workDir Working directory for backup output
      * @param array $userConfig User configuration for pkgacct options
+     * @param string|null $logFile Optional log file for real-time output streaming
      * @return array Result with success status, file path, and execution details
      */
-    public function execute($account, $workDir, $userConfig = []) {
+    public function execute($account, $workDir, $userConfig = [], $logFile = null) {
         // Verify pkgacct binary is available
         if (!$this->isAvailable()) {
             return [
@@ -171,10 +172,17 @@ class BackBorkPkgacct {
         $command .= ' ' . escapeshellarg($account);    // Account username
         $command .= ' ' . escapeshellarg($workDir);    // Output directory
         
-        // Execute pkgacct and capture output
-        $output = [];
-        $returnCode = 0;
-        exec($command . ' 2>&1', $output, $returnCode);  // Capture stderr too
+        // Execute pkgacct with real-time output streaming if log file provided
+        if ($logFile !== null) {
+            $result = $this->executeWithLogging($command, $logFile);
+            $output = $result['output'];
+            $returnCode = $result['return_code'];
+        } else {
+            // Legacy execution without streaming
+            $output = [];
+            $returnCode = 0;
+            exec($command . ' 2>&1', $output, $returnCode);
+        }
         
         $outputStr = implode("\n", $output);
         
@@ -213,6 +221,100 @@ class BackBorkPkgacct {
             'command' => $command,
             'output' => $output
         ];
+    }
+    
+    /**
+     * Execute command with real-time logging to file.
+     * Streams output line-by-line to log file as it's produced.
+     * 
+     * @param string $command Command to execute
+     * @param string $logFile Path to log file for output
+     * @return array Result with output array and return code
+     */
+    private function executeWithLogging($command, $logFile) {
+        $output = [];
+        $returnCode = 0;
+        
+        // Open process with separate stdout/stderr pipes
+        $descriptorSpec = [
+            0 => ['pipe', 'r'],  // stdin
+            1 => ['pipe', 'w'],  // stdout
+            2 => ['pipe', 'w']   // stderr
+        ];
+        
+        $process = proc_open($command, $descriptorSpec, $pipes);
+        
+        if (!is_resource($process)) {
+            $this->appendToLog($logFile, "      [ERROR] Failed to start pkgacct process");
+            return ['output' => ['Failed to start process'], 'return_code' => 1];
+        }
+        
+        // Close stdin - we don't need it
+        fclose($pipes[0]);
+        
+        // Set streams to non-blocking for interleaved reading
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        
+        $this->appendToLog($logFile, "      --- pkgacct output begin ---");
+        
+        // Read from both streams until process completes
+        while (true) {
+            $stdout = fgets($pipes[1]);
+            $stderr = fgets($pipes[2]);
+            
+            if ($stdout !== false) {
+                $line = rtrim($stdout);
+                $output[] = $line;
+                $this->appendToLog($logFile, "      " . $line);
+            }
+            
+            if ($stderr !== false) {
+                $line = rtrim($stderr);
+                $output[] = $line;
+                $this->appendToLog($logFile, "      " . $line);
+            }
+            
+            // Check if process is still running
+            $status = proc_get_status($process);
+            if (!$status['running']) {
+                // Read any remaining output
+                while (($line = fgets($pipes[1])) !== false) {
+                    $line = rtrim($line);
+                    $output[] = $line;
+                    $this->appendToLog($logFile, "      " . $line);
+                }
+                while (($line = fgets($pipes[2])) !== false) {
+                    $line = rtrim($line);
+                    $output[] = $line;
+                    $this->appendToLog($logFile, "      " . $line);
+                }
+                $returnCode = $status['exitcode'];
+                break;
+            }
+            
+            // Small delay to prevent CPU spinning
+            usleep(10000); // 10ms
+        }
+        
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+        
+        $this->appendToLog($logFile, "      --- pkgacct output end ---");
+        
+        return ['output' => $output, 'return_code' => $returnCode];
+    }
+    
+    /**
+     * Append a line to the log file with timestamp.
+     * 
+     * @param string $logFile Path to log file
+     * @param string $message Message to append
+     */
+    private function appendToLog($logFile, $message) {
+        $timestamp = date('H:i:s');
+        file_put_contents($logFile, "[{$timestamp}] {$message}\n", FILE_APPEND | LOCK_EX);
     }
     
     /**

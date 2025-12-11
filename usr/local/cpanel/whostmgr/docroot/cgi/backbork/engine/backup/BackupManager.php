@@ -88,6 +88,20 @@ class BackBorkBackupManager {
      * @return array Result with success status, messages, per-account results, and errors
      */
     public function createBackup($accounts, $destinationId, $user) {
+        // Generate unique backup ID for log tracking
+        $backupId = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
+        $logFile = self::LOG_DIR . '/' . $backupId . '.log';
+        
+        // Initialize log file with header
+        $this->writeBackupLog($logFile, "========================================");
+        $this->writeBackupLog($logFile, "BACKBORK BACKUP OPERATION");
+        $this->writeBackupLog($logFile, "========================================");
+        $this->writeBackupLog($logFile, "Backup ID: {$backupId}");
+        $this->writeBackupLog($logFile, "Started: " . date('Y-m-d H:i:s'));
+        $this->writeBackupLog($logFile, "User: {$user}");
+        $this->writeBackupLog($logFile, "Accounts: " . implode(', ', $accounts));
+        $this->writeBackupLog($logFile, "");
+        
         // Load user-specific configuration (temp dir, notification prefs, etc.)
         $userConfig = $this->config->getUserConfig($user);
         
@@ -96,8 +110,18 @@ class BackBorkBackupManager {
         
         // Validate destination exists
         if (!$destination) {
-            return ['success' => false, 'message' => 'Invalid destination'];
+            $this->writeBackupLog($logFile, "[ERROR] Invalid destination ID: {$destinationId}");
+            $this->writeBackupLog($logFile, "");
+            $this->writeBackupLog($logFile, "BACKUP FAILED");
+            return ['success' => false, 'message' => 'Invalid destination', 'backup_id' => $backupId];
         }
+        
+        $destType = strtolower($destination['type'] ?? 'local');
+        $this->writeBackupLog($logFile, "[STEP 1/5] Validating destination...");
+        $this->writeBackupLog($logFile, "  → Destination: {$destination['name']}");
+        $this->writeBackupLog($logFile, "  → Type: {$destType}");
+        $this->writeBackupLog($logFile, "  → Path: " . ($destination['path'] ?? '/backup'));
+        $this->writeBackupLog($logFile, "");
         
         // Track results and errors for each account
         $results = [];
@@ -107,6 +131,7 @@ class BackBorkBackupManager {
         // Send start notification if user has enabled it (check new key, fallback to legacy)
         $notifyStart = !empty($userConfig['notify_backup_start']) || (!isset($userConfig['notify_backup_start']) && !empty($userConfig['notify_start']));
         if ($notifyStart) {
+            $this->writeBackupLog($logFile, "[STEP 2/5] Sending start notification...");
             $this->notify->sendNotification(
                 'backup_start',
                 [
@@ -117,25 +142,46 @@ class BackBorkBackupManager {
                 ],
                 $userConfig
             );
+            $this->writeBackupLog($logFile, "  → Notification sent");
+            $this->writeBackupLog($logFile, "");
+        } else {
+            $this->writeBackupLog($logFile, "[STEP 2/5] Start notification skipped (not enabled)");
+            $this->writeBackupLog($logFile, "");
         }
+        
+        $totalAccounts = count($accounts);
+        $currentAccount = 0;
         
         // Process each account sequentially
         foreach ($accounts as $account) {
+            $currentAccount++;
+            $this->writeBackupLog($logFile, "[STEP 3/5] Processing account {$currentAccount}/{$totalAccounts}: {$account}");
+            $this->writeBackupLog($logFile, str_repeat('-', 40));
+            
             // Backup single account (pkgacct + transport)
-            $result = $this->backupSingleAccount($account, $destination, $userConfig, $user);
+            $result = $this->backupSingleAccount($account, $destination, $userConfig, $user, $logFile);
             $results[$account] = $result;
             
             // Track failures for summary
             if (!$result['success']) {
                 $errors[] = $account . ': ' . $result['message'];
+                $this->writeBackupLog($logFile, "  ✗ FAILED: " . $result['message']);
+            } else {
+                $this->writeBackupLog($logFile, "  ✓ SUCCESS: " . $result['message']);
             }
             
             // Build log message for this account
             $logMessages[] = "[{$account}] " . ($result['success'] ? 'SUCCESS' : 'FAILED') . ': ' . $result['message'];
+            $this->writeBackupLog($logFile, "");
         }
         
         // Overall success only if no errors occurred
         $success = empty($errors);
+        
+        $this->writeBackupLog($logFile, "[STEP 4/5] Backup processing complete");
+        $this->writeBackupLog($logFile, "  → Successful: " . ($totalAccounts - count($errors)) . "/{$totalAccounts}");
+        $this->writeBackupLog($logFile, "  → Failed: " . count($errors) . "/{$totalAccounts}");
+        $this->writeBackupLog($logFile, "");
         
         // Log the complete operation with all account results
         BackBorkConfig::debugLog('createBackup: Logging operation for user=' . $user . ' success=' . ($success ? 'true' : 'false') . ' accounts=' . implode(',', $accounts));
@@ -145,8 +191,12 @@ class BackBorkBackupManager {
         $notifySuccess = !empty($userConfig['notify_backup_success']) || (!isset($userConfig['notify_backup_success']) && !empty($userConfig['notify_success']));
         $notifyFailure = !empty($userConfig['notify_backup_failure']) || (!isset($userConfig['notify_backup_failure']) && !empty($userConfig['notify_failure']));
         
+        // Send completion notifications
+        $this->writeBackupLog($logFile, "[STEP 5/5] Sending completion notification...");
+        
         // Send success notification if all backups succeeded and notifications enabled
         if ($success && $notifySuccess) {
+            $this->writeBackupLog($logFile, "  → Sending success notification");
             $this->notify->sendNotification(
                 'backup_success',
                 [
@@ -160,6 +210,7 @@ class BackBorkBackupManager {
             );
         // Send failure notification if any backup failed and notifications enabled
         } elseif (!$success && $notifyFailure) {
+            $this->writeBackupLog($logFile, "  → Sending failure notification");
             $this->notify->sendNotification(
                 'backup_failure',
                 [
@@ -171,7 +222,21 @@ class BackBorkBackupManager {
                 ],
                 $userConfig
             );
+        } else {
+            $this->writeBackupLog($logFile, "  → No notification configured for this outcome");
         }
+        
+        // Write final status to log
+        $this->writeBackupLog($logFile, "");
+        $this->writeBackupLog($logFile, "========================================");
+        if ($success) {
+            $this->writeBackupLog($logFile, "BACKUP COMPLETED SUCCESSFULLY");
+        } else {
+            $this->writeBackupLog($logFile, "BACKUP FAILED");
+            $this->writeBackupLog($logFile, "Errors: " . implode('; ', $errors));
+        }
+        $this->writeBackupLog($logFile, "Finished: " . date('Y-m-d H:i:s'));
+        $this->writeBackupLog($logFile, "========================================");
         
         // Return comprehensive result for API response
         return [
@@ -179,7 +244,8 @@ class BackBorkBackupManager {
             'message' => $success ? 'All backups completed successfully' : 'Some backups failed',
             'results' => $results,
             'errors' => $errors,
-            'log' => implode("\n", $logMessages)
+            'log' => implode("\n", $logMessages),
+            'backup_id' => $backupId
         ];
     }
     
@@ -192,14 +258,19 @@ class BackBorkBackupManager {
      * @param array $destination Destination configuration (type, path, credentials, etc.)
      * @param array $userConfig User configuration (temp directory, options)
      * @param string $user User initiating backup (for logging)
+     * @param string $logFile Path to log file for progress updates
      * @return array Result with success status and message
      */
-    private function backupSingleAccount($account, $destination, $userConfig, $user) {
+    private function backupSingleAccount($account, $destination, $userConfig, $user, $logFile = null) {
         // Generate timestamp for unique backup filename
         $timestamp = date('Y-m-d_H-i-s');
         
         // Use user-configured temp directory or default
         $tempDir = isset($userConfig['temp_directory']) ? $userConfig['temp_directory'] : self::TEMP_DIR;
+        
+        $this->writeBackupLog($logFile, "  [3a] Preparing backup environment...");
+        $this->writeBackupLog($logFile, "      → Timestamp: {$timestamp}");
+        $this->writeBackupLog($logFile, "      → Temp directory: {$tempDir}");
         
         // Ensure temp directory exists with secure permissions
         if (!is_dir($tempDir)) {
@@ -219,11 +290,21 @@ class BackBorkBackupManager {
         // STEP 1: Execute pkgacct
         // If using mariadb-backup/mysqlbackup, pkgacct uses --dbbackup=schema
         // ====================================================================
-        $pkgResult = $this->pkgacct->execute($account, $tempDir, $userConfig);
+        $this->writeBackupLog($logFile, "  [3b] Running pkgacct for {$account}...");
+        $this->writeBackupLog($logFile, "      ────────────────────────────────────────────────────────");
+        $this->writeBackupLog($logFile, "      pkgacct output:");
+        
+        // Pass logFile to stream pkgacct output in real-time
+        $pkgResult = $this->pkgacct->execute($account, $tempDir, $userConfig, $logFile);
+        
+        $this->writeBackupLog($logFile, "      ────────────────────────────────────────────────────────");
         
         if (!$pkgResult['success']) {
+            $this->writeBackupLog($logFile, "      ✗ pkgacct failed: " . ($pkgResult['message'] ?? 'Unknown error'));
             return $pkgResult;
         }
+        
+        $this->writeBackupLog($logFile, "      ✓ pkgacct completed successfully");
         
         // Rename archive with timestamp
         $createdFile = $pkgResult['path'];
@@ -231,13 +312,18 @@ class BackBorkBackupManager {
         $finalFile = $tempDir . '/' . $backupFile;
         
         if ($createdFile !== $finalFile) {
+            $this->writeBackupLog($logFile, "      → Renaming archive to: {$backupFile}");
             if (!rename($createdFile, $finalFile)) {
+                $this->writeBackupLog($logFile, "      ✗ Failed to rename backup file");
                 return [
                     'success' => false,
                     'message' => "Failed to rename backup file"
                 ];
             }
         }
+        
+        $fileSize = file_exists($finalFile) ? $this->formatSize(filesize($finalFile)) : 'Unknown';
+        $this->writeBackupLog($logFile, "      → Archive size: {$fileSize}");
         
         $filesToUpload[] = ['local' => $finalFile, 'remote' => $account . '/' . $backupFile];
         $filesToCleanup[] = $finalFile;
@@ -249,12 +335,14 @@ class BackBorkBackupManager {
         $dbMethod = $userConfig['db_backup_method'] ?? 'pkgacct';
         
         if (in_array($dbMethod, ['mariadb-backup', 'mysqlbackup'], true)) {
+            $this->writeBackupLog($logFile, "  [3c] Running hot database backup ({$dbMethod})...");
             BackBorkConfig::debugLog("Running {$dbMethod} for account: {$account}");
             
             $dbResult = $this->dbBackup->backupDatabases($account, $tempDir, $userConfig);
             
             if (!$dbResult['success'] && empty($dbResult['skipped'])) {
                 // DB backup failed - clean up and report
+                $this->writeBackupLog($logFile, "      ✗ Database backup failed: " . ($dbResult['message'] ?? 'Unknown error'));
                 foreach ($filesToCleanup as $file) {
                     if (file_exists($file)) unlink($file);
                 }
@@ -267,35 +355,55 @@ class BackBorkBackupManager {
             // Add DB archive to upload list if created
             if (!empty($dbResult['archive']) && file_exists($dbResult['archive'])) {
                 $dbArchiveName = basename($dbResult['archive']);
+                $dbSize = $this->formatSize(filesize($dbResult['archive']));
+                $this->writeBackupLog($logFile, "      ✓ Database backup created: {$dbArchiveName} ({$dbSize})");
                 $filesToUpload[] = ['local' => $dbResult['archive'], 'remote' => $account . '/' . $dbArchiveName];
                 $filesToCleanup[] = $dbResult['archive'];
+            } else {
+                $this->writeBackupLog($logFile, "      → No databases to backup (skipped)");
             }
+        } else {
+            $this->writeBackupLog($logFile, "  [3c] Database backup method: pkgacct (included in archive)");
         }
         
         // ====================================================================
         // STEP 3: Upload all files to destination
         // ====================================================================
+        $this->writeBackupLog($logFile, "  [3d] Uploading to destination...");
         $validator = new BackBorkDestinationsValidator();
         $transport = $validator->getTransportForDestination($destination);
         
         $allSuccess = true;
         $messages = [];
+        $destType = strtolower($destination['type'] ?? 'local');
         
         foreach ($filesToUpload as $file) {
+            $filename = basename($file['local']);
+            $this->writeBackupLog($logFile, "      → Uploading: {$filename}");
             $result = $transport->upload($file['local'], $file['remote'], $destination);
             if (!$result['success']) {
                 $allSuccess = false;
                 $messages[] = basename($file['remote']) . ': ' . ($result['message'] ?? 'Upload failed');
+                $this->writeBackupLog($logFile, "        ✗ Upload failed: " . ($result['message'] ?? 'Unknown error'));
+            } else {
+                $this->writeBackupLog($logFile, "        ✓ Upload successful");
             }
         }
         
         // ====================================================================
         // STEP 4: Cleanup temp files
         // ====================================================================
+        $this->writeBackupLog($logFile, "  [3e] Cleaning up temporary files...");
         if ($allSuccess) {
             foreach ($filesToCleanup as $file) {
-                if (file_exists($file)) unlink($file);
+                if (file_exists($file)) {
+                    $this->writeBackupLog($logFile, "      → Removing: " . basename($file));
+                    unlink($file);
+                }
             }
+            $this->writeBackupLog($logFile, "      ✓ Cleanup complete");
+        } else {
+            $this->writeBackupLog($logFile, "      → Skipping cleanup (upload failed - keeping local files)");
         }
         
         return [
@@ -542,5 +650,36 @@ class BackBorkBackupManager {
         $bytes /= pow(1024, $pow);
         
         return round($bytes, 2) . ' ' . $units[$pow];
+    }
+    
+    /**
+     * Write a message to the backup progress log file.
+     * Used for real-time progress tracking during backup operations.
+     * 
+     * @param string|null $logFile Path to log file (null to skip logging)
+     * @param string $message Message to write
+     */
+    private function writeBackupLog($logFile, $message) {
+        if ($logFile === null) {
+            return;
+        }
+        
+        $timestamp = date('H:i:s');
+        file_put_contents($logFile, "[{$timestamp}] {$message}\n", FILE_APPEND | LOCK_EX);
+    }
+    
+    /**
+     * Get requestor information (IP or 'cron' for CLI).
+     * 
+     * @return string Requestor identifier
+     */
+    private function getRequestor() {
+        if (php_sapi_name() === 'cli') {
+            return 'cron';
+        }
+        
+        return isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
+            ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
+            : ($_SERVER['REMOTE_ADDR'] ?? 'local');
     }
 }

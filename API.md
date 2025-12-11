@@ -190,7 +190,7 @@ Tests a destination connection.
 
 #### `POST ?action=create_backup`
 
-Starts a backup job for one or more accounts.
+Starts a backup job for one or more accounts with real-time progress logging.
 
 **Request:**
 ```json
@@ -204,14 +204,47 @@ Starts a backup job for one or more accounts.
 ```json
 {
   "success": true,
-  "job_id": "job_1702234567_a1b2c3d4",
-  "message": "Backup job started",
-  "accounts": ["user1", "user2"]
+  "backup_id": "backup_1702234567_a1b2c3d4",
+  "message": "All backups completed successfully",
+  "results": {
+    "user1": {"success": true, "message": "Backup completed successfully"},
+    "user2": {"success": true, "message": "Backup completed successfully"}
+  },
+  "errors": [],
+  "log": "[user1] SUCCESS: Backup completed successfully\n[user2] SUCCESS: Backup completed successfully"
 }
 ```
 
-> [!WARNING]
-> Large accounts may take significant time. The job runs asynchronously — use `get_queue` to check progress.
+> [!TIP]
+> Use the `backup_id` returned to poll for real-time progress using `get_backup_log`.
+
+#### `GET ?action=get_backup_log`
+
+Polls the backup progress log for real-time updates. Use this to display live progress in the UI.
+
+**Request:**
+```
+?action=get_backup_log&backup_id=backup_1702234567_a1b2c3d4&offset=0
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "content": "[10:30:15] ========================================\n[10:30:15] BACKBORK BACKUP OPERATION\n...",
+  "offset": 1234,
+  "complete": false
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `content` | New log content since the given offset |
+| `offset` | Current file size (use as next offset) |
+| `complete` | `true` when backup finished (look for `BACKUP COMPLETED SUCCESSFULLY` or `BACKUP FAILED`) |
+
+> [!TIP]
+> Poll every 500ms for smooth real-time updates. Start with `offset=0` to get the full log.
 
 #### `GET ?action=get_queue`
 
@@ -332,7 +365,7 @@ Cancels a pending backup job.
 
 #### `POST ?action=restore_backup`
 
-Initiates a restore operation.
+Initiates a restore operation with real-time progress logging.
 
 **Request:**
 ```json
@@ -362,6 +395,37 @@ Initiates a restore operation.
 
 > [!IMPORTANT]
 > If `options` is omitted or empty, a **full restore** is performed.
+
+> [!TIP]
+> Use the `restore_id` returned to poll for real-time progress using `get_restore_log`.
+
+#### `GET ?action=get_restore_log`
+
+Polls the restore progress log for real-time updates. Use this to display live progress in the UI.
+
+**Request:**
+```
+?action=get_restore_log&restore_id=restore_1702234567_e5f6g7h8&offset=0
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "content": "[10:30:15] ========================================\n[10:30:15] BACKBORK RESTORE OPERATION\n...",
+  "offset": 2048,
+  "complete": false
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `content` | New log content since the given offset |
+| `offset` | Current file size (use as next offset) |
+| `complete` | `true` when restore finished (look for `RESTORE COMPLETED SUCCESSFULLY` or `RESTORE FAILED`) |
+
+> [!TIP]
+> Poll every 500ms for smooth real-time updates. Start with `offset=0` to get the full log including download and verification steps.
 
 #### `GET ?action=get_restore_status`
 

@@ -27,6 +27,7 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 |---------|--------------|
 | 📦 **Backup Accounts** | Full account backups to local or SFTP |
 | 🔄 **Restore Accounts** | Full restore or cherry-pick specific parts |
+| 📊 **Real-Time Progress** | Live step-by-step logging during backup/restore |
 | ⏰ **Schedule Backups** | Hourly, daily, weekly, or monthly automation |
 | 🌐 **All Accounts Mode** | Dynamic schedules that auto-include new accounts |
 | 🗂️ **Data Management** | Browse and delete backup files by account |
@@ -72,13 +73,13 @@ cd BackBork-KISS-Plugin-for-WHM
 
 ### 📦 Backups Tab
 
-Select your accounts, choose a destination, and fire off a backup. The interface shows you exactly what's happening in real-time. See the processing indicator (cog icon at the top) spin when the queue is being processed!
+Select your accounts, choose a destination, and fire off a backup. The interface shows you exactly what's happening in real-time with step-by-step progress logging — from pkgacct execution through to upload completion and cleanup. See the processing indicator (cog icon at the top) spin when the queue is being processed!
 
 ![BackBork Backups Interface](_images/BackBork-Backups.png)
 
 ### 🔄 Restores Tab
 
-Browse your backup files and restore entire accounts or just the bits you need. No more hunting through directories.
+Browse your backup files and restore entire accounts or just the bits you need. Real-time progress logging shows each step of the restore — download, verification, database handling, restorepkg execution, and cleanup. No more hunting through directories or wondering what's happening.
 
 ![BackBork Restores Interface](_images/BackBork-Restores.png)
 
@@ -132,14 +133,24 @@ Isn't it convenient how there's a JB up-sell there, and they won't fix Backups..
 1. ✅ Select the account(s) you want to back up
 2. 📍 Choose your destination (SFTP or local)
 3. 🚀 Click **Backup Selected**
-4. 👀 Watch the progress in the log output
+4. 👀 Watch the real-time progress log showing each step:
+   - Destination validation
+   - pkgacct execution
+   - Database backup (if configured)
+   - Upload to destination
+   - Cleanup of temp files
 
 ### 🔹 Restore a Backup
 
 1. Go to the **Restore** tab
-2. Pick the account and backup file
+2. Pick the destination, account, and backup file
 3. Choose what to restore (full account or specific parts)
-4. Click **Restore** and let it rip
+4. Click **Restore** and watch the real-time progress:
+   - Download from remote (if applicable)
+   - File verification
+   - Database check
+   - restorepkg execution
+   - Cleanup and notification
 
 ### 🔹 Schedule Backups
 

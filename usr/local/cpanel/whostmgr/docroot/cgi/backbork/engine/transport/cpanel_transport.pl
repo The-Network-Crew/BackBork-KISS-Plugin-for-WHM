@@ -220,24 +220,32 @@ sub do_delete {
     my $type = $config->{'type'};
     my $base_path = $config->{'path'} || '';
     
+    warn "cpanel_transport.pl: do_delete called with path='$path', base_path='$base_path'\n";
+    
     eval {
         # Pass config hashref directly to Transport::Files
         my $transport = Cpanel::Transport::Files->new($type, $config);
         
-        # Build full path including base_path and manual_backup
+        # Use the path as-is - PHP has already built the full path
+        # Only add prefixes if the path appears to be just a filename
         my $delete_path = $path;
         
-        # If path doesn't include manual_backup, prepend it
-        if ($delete_path !~ m{manual_backup/}) {
+        # Check if path already includes base_path or manual_backup
+        my $has_base = $base_path && $delete_path =~ m{^\Q$base_path\E/};
+        my $has_manual = $delete_path =~ m{manual_backup/};
+        
+        # If path is just a filename (no slashes), build the full path
+        if ($delete_path !~ m{/}) {
             $delete_path = "manual_backup/$delete_path";
+            warn "cpanel_transport.pl: Added manual_backup prefix -> '$delete_path'\n";
+            
+            if ($base_path) {
+                $delete_path = "$base_path/$delete_path";
+                warn "cpanel_transport.pl: Added base_path prefix -> '$delete_path'\n";
+            }
         }
         
-        # Prepend base_path if configured
-        if ($base_path) {
-            $delete_path = "$base_path/$delete_path";
-        }
-        
-        warn "cpanel_transport.pl: Deleting path='$delete_path'\n";
+        warn "cpanel_transport.pl: Final delete path='$delete_path'\n";
         
         my $response = $transport->delete($delete_path);
         
@@ -250,50 +258,25 @@ sub do_delete {
         }
     };
     if ($@) {
-        print_json({ success => 0, message => "Transport error: $@" });
+        my $error = $@;
+        # Extract message from Cpanel::Transport::Exception objects
+        if (ref($error) && $error->can('get')) {
+            $error = $error->get('msg') || $error->get('message') || "$error";
+        }
+        elsif (ref($error) && ref($error) eq 'HASH') {
+            $error = $error->{'msg'} || $error->{'message'} || "$error";
+        }
+        elsif (ref($error)) {
+            # Try to stringify or get any useful info
+            $error = eval { $error->message } || eval { $error->to_string } || "$error";
+        }
+        print_json({ success => 0, message => "Transport error: $error" });
     }
 }
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
-
-sub build_transport_opts {
-    my ($config) = @_;
-    
-    my %opts = (
-        host    => $config->{'host'},
-        path    => $config->{'path'} || '/',
-        timeout => $config->{'timeout'} || 30,
-    );
-    
-    # Add port if specified
-    $opts{'port'} = $config->{'port'} if $config->{'port'};
-    
-    # Add authentication based on type
-    my $type = $config->{'type'};
-    
-    if ($type eq 'SFTP') {
-        $opts{'username'} = $config->{'username'} if $config->{'username'};
-        
-        if ($config->{'authtype'} eq 'key' && $config->{'keyfile'}) {
-            $opts{'authtype'} = 'key';
-            $opts{'key'}      = $config->{'keyfile'};
-            $opts{'passphrase'} = $config->{'password'} if $config->{'password'};
-        }
-        else {
-            $opts{'authtype'} = 'password';
-            $opts{'password'} = $config->{'password'} if $config->{'password'};
-        }
-    }
-    elsif ($type eq 'FTP') {
-        $opts{'username'} = $config->{'username'} if $config->{'username'};
-        $opts{'password'} = $config->{'password'} if $config->{'password'};
-        $opts{'passive'}  = $config->{'passive'} ? 1 : 0;
-    }
-    
-    return %opts;
-}
 
 sub print_json {
     my ($data) = @_;
