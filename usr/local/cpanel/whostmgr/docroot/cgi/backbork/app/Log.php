@@ -144,8 +144,8 @@ class BackBorkLog {
         $written = @file_put_contents(self::LOG_FILE, $line, FILE_APPEND | LOCK_EX);
         
         if ($written === false) {
-            // Log write failed - use PHP error log as fallback
-            error_log('[BackBork] Failed to write operations log. Fallback: ' . json_encode($entry));
+            // Log write failed - use debug log as fallback (only if debug enabled)
+            BackBorkConfig::debugLog('Failed to write operations log. Fallback: ' . json_encode($entry));
         } else {
             // Set readable permissions (owner write, world read)
             @chmod(self::LOG_FILE, 0644);
@@ -216,7 +216,7 @@ class BackBorkLog {
                 'user' => $entry['user'] ?? '',
                 'requestor' => $entry['requestor'] ?? 'N/A',
                 'status' => $status,
-                'message' => isset($entry['message']) ? substr($entry['message'], 0, 200) : ''  // Truncate long messages
+                'message' => $entry['message'] ?? ''
             ];
         }
 

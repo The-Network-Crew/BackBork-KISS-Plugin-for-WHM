@@ -59,7 +59,7 @@ define('CRON_HEALTH_CHECK_INTERVAL', 1800);
 $processor = new BackBorkQueueProcessor();
 
 // Log start of cron run
-error_log('[BackBork] Cron handler started at ' . date('Y-m-d H:i:s'));
+BackBorkConfig::debugLog('Cron handler started at ' . date('Y-m-d H:i:s'));
 echo '[BackBork] Cron handler started at ' . date('Y-m-d H:i:s') . "\n";
 
 // Update last run timestamp (for health check monitoring)
@@ -101,14 +101,14 @@ performHealthCheck();
 // ============================================================================
 $scheduleResults = $processor->processSchedules();
 if (!empty($scheduleResults['scheduled'])) {
-    error_log('[BackBork] Scheduled items queued: ' . count($scheduleResults['scheduled']));
+    BackBorkConfig::debugLog('Scheduled items queued: ' . count($scheduleResults['scheduled']));
 }
 
 // ============================================================================
 // QUEUE PROCESSING - Execute queued backup/restore jobs
 // ============================================================================
 $queueResults = $processor->processQueue();
-error_log('[BackBork] Queue processing complete: ' . $queueResults['message']);
+BackBorkConfig::debugLog('Queue processing complete: ' . $queueResults['message']);
 
 // Log significant events via BackBorkLog for history tracking
 if (class_exists('BackBorkLog')) {
@@ -121,11 +121,16 @@ if (class_exists('BackBorkLog')) {
     if ($processed > 0 || $failed > 0 || !$queueResults['success']) {
         BackBorkLog::logEvent('root', 'queue_cron_process', $accounts, $queueResults['success'], $logMessage, 'cron');
     }
+    
+    // Send queue failure notifications if any jobs failed
+    if ($failed > 0) {
+        sendQueueFailureNotifications($queueResults);
+    }
 }
 
 // Log current queue statistics
 $stats = $processor->getStats();
-error_log('[BackBork] Queue stats - Total: ' . $stats['total'] . 
+BackBorkConfig::debugLog('Queue stats - Total: ' . $stats['total'] . 
           ', Queued: ' . $stats['queued'] . 
           ', Failed: ' . $stats['failed']);
 
@@ -135,7 +140,10 @@ error_log('[BackBork] Queue stats - Total: ' . $stats['total'] .
 // Runs hourly to honour retention policies even with frequent schedules
 $pruneResults = $processor->pruneOldBackups();
 if ($pruneResults['pruned'] > 0) {
-    error_log('[BackBork] Retention pruning completed: ' . $pruneResults['message']);
+    BackBorkConfig::debugLog('Retention pruning completed: ' . $pruneResults['message']);
+    
+    // Send pruning alert if enabled in global config
+    sendPruningNotification($pruneResults);
 }
 
 // ============================================================================
@@ -144,11 +152,11 @@ if ($pruneResults['pruned'] > 0) {
 $retrieval = new BackBorkRetrieval();
 $cleaned = $retrieval->cleanupTempFiles(24);  // Delete files older than 24 hours
 if ($cleaned > 0) {
-    error_log('[BackBork] Cleaned up ' . $cleaned . ' old temp files');
+    BackBorkConfig::debugLog('Cleaned up ' . $cleaned . ' old temp files');
 }
 
 // Log completion
-error_log('[BackBork] Cron handler finished at ' . date('Y-m-d H:i:s'));
+BackBorkConfig::debugLog('Cron handler finished at ' . date('Y-m-d H:i:s'));
 echo '[BackBork] Cron handler finished at ' . date('Y-m-d H:i:s') . "\n";
 
 // ============================================================================
@@ -162,7 +170,7 @@ echo '[BackBork] Cron handler finished at ' . date('Y-m-d H:i:s') . "\n";
  * @param BackBorkQueueProcessor $processor Queue processor instance
  */
 function runCleanup($processor) {
-    error_log('[BackBork] Running cleanup tasks...');
+    BackBorkConfig::debugLog('Running cleanup tasks...');
     
     // Remove completed queue jobs older than 30 days
     $processor->cleanupCompletedJobs(30);
@@ -174,14 +182,14 @@ function runCleanup($processor) {
     foreach (glob($logDir . '/*.log') as $logFile) {
         if (filemtime($logFile) < (time() - $maxLogAge)) {
             unlink($logFile);
-            error_log('[BackBork] Removed old log: ' . basename($logFile));
+            BackBorkConfig::debugLog('Removed old log: ' . basename($logFile));
         }
     }
     
     // Clean orphaned temp files from failed/interrupted operations
     $retrieval = new BackBorkRetrieval();
     $cleaned = $retrieval->cleanupTempFiles(24);
-    error_log('[BackBork] Cleanup complete. Removed ' . $cleaned . ' temp files.');
+    BackBorkConfig::debugLog('Cleanup complete. Removed ' . $cleaned . ' temp files.');
 }
 
 /**
@@ -230,6 +238,7 @@ function performHealthCheck() {
 /**
  * Send health alert notifications via email and Slack.
  * Rate-limited to prevent notification spam (max once per 24 hours).
+ * Only sends if notify_cron_errors is enabled in global config.
  * 
  * @param string $issue Description of the health issue
  * @param string $healthFile Path to notification tracking file
@@ -244,101 +253,18 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
         }
     }
     
-    error_log('[BackBork] HEALTH ALERT: ' . $issue);
+    BackBorkConfig::debugLog('HEALTH ALERT: ' . $issue);
     
-    // Load root user's notification configuration
-    $config = new BackBorkConfig();
-    $rootConfig = $config->getUserConfig('root');
-    
-    // Gather alert context
-    $hostname = gethostname() ?: 'unknown';
-    $timestamp = date('Y-m-d H:i:s T');
-    $lastRunStr = $lastRun ? date('Y-m-d H:i:s T', $lastRun) : 'Never';
-    
-    // ========================================================================
-    // EMAIL NOTIFICATION - Send formatted alert email to configured address
-    // ========================================================================
-    if (!empty($rootConfig['notify_email'])) {
-        // Compose alert subject with warning emoji and hostname
-        $subject = "⚠️ [BackBork] Cron Health Check Failed on {$hostname}";
-        
-        // Build plain text email body with troubleshooting steps
-        $body = "BackBork Cron Health Alert\n";
-        $body .= "══════════════════════════\n\n";
-        $body .= "Server: {$hostname}\n";
-        $body .= "Time: {$timestamp}\n";
-        $body .= "Status: FAILED\n\n";
-        $body .= "Issue: {$issue}\n\n";
-        $body .= "Last successful run: {$lastRunStr}\n";
-        $body .= "Expected interval: 5 minutes\n\n";
-        $body .= "Action Required:\n";
-        $body .= "1. Check if crond service is running\n";
-        $body .= "2. Verify /etc/cron.d/backbork exists\n";
-        $body .= "3. Check cron logs: /var/log/cron\n\n";
-        $body .= "══════════════════════════\n";
-        $body .= "This is an automated alert from BackBork KISS\n";
-        
-        // Send email using PHP mail() function
-        mail($rootConfig['notify_email'], $subject, $body, "From: backbork@{$hostname}");
-        error_log('[BackBork] Health alert email sent to ' . $rootConfig['notify_email']);
-    }
-    
-    // ========================================================================
-    // SLACK NOTIFICATION - Send Block Kit formatted message to webhook
-    // ========================================================================
-    if (!empty($rootConfig['slack_webhook'])) {
-        // Build Slack Block Kit payload with rich formatting
-        $slackPayload = [
-            // Fallback text for notifications
-            'text' => "⚠️ BackBork Cron Health Check Failed on {$hostname}",
-            // Rich Block Kit blocks for full display
-            'blocks' => [
-                // Header block with warning icon
-                [
-                    'type' => 'header',
-                    'text' => [
-                        'type' => 'plain_text',
-                        'text' => '⚠️ Cron Health Alert',
-                        'emoji' => true
-                    ]
-                ],
-                // Status fields in 2-column layout
-                [
-                    'type' => 'section',
-                    'fields' => [
-                        ['type' => 'mrkdwn', 'text' => "*Server:*\n{$hostname}"],
-                        ['type' => 'mrkdwn', 'text' => "*Status:*\n🔴 FAILED"],
-                        ['type' => 'mrkdwn', 'text' => "*Issue:*\n{$issue}"],
-                        ['type' => 'mrkdwn', 'text' => "*Last Run:*\n{$lastRunStr}"]
-                    ]
-                ],
-                // Troubleshooting section with action items
-                [
-                    'type' => 'section',
-                    'text' => [
-                        'type' => 'mrkdwn',
-                        'text' => "*Action Required:*\n1. Check crond service\n2. Verify /etc/cron.d/backbork\n3. Check /var/log/cron"
-                    ]
-                ]
-            ]
-        ];
-        
-        // Send POST request to Slack webhook URL
-        $ch = curl_init($rootConfig['slack_webhook']);
-        curl_setopt_array($ch, [
-            CURLOPT_POST => true,                                  // HTTP POST method
-            CURLOPT_POSTFIELDS => json_encode($slackPayload),      // JSON encoded payload
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,                        // Return response string
-            CURLOPT_TIMEOUT => 10                                  // 10 second timeout
-        ]);
-        curl_exec($ch);
-        curl_close($ch);
-        error_log('[BackBork] Health alert sent to Slack');
-    }
+    // Send via unified root notification system
+    $sent = sendRootNotification('cron_health', 'notify_cron_errors', [
+        'issue' => $issue,
+        'last_run' => $lastRun ? date('Y-m-d H:i:s T', $lastRun) : 'Never'
+    ]);
     
     // Record notification timestamp to prevent re-alerting too soon
-    file_put_contents($healthFile, time());
+    if ($sent) {
+        file_put_contents($healthFile, time());
+    }
 }
 
 /**
@@ -347,23 +273,17 @@ function sendHealthAlert($issue, $healthFile, $lastRun = null) {
  * 
  * Iterates through all users who have daily summary enabled and sends
  * them a digest of activity from the past 24 hours.
+ * 
+ * SECURITY: Each user only receives stats for their own accounts.
+ * Root user sees all activity, resellers only see their owned accounts.
  */
 function sendDailySummary() {
-    error_log('[BackBork] Generating daily summaries...');
+    BackBorkConfig::debugLog('Generating daily summaries...');
     
     $config = new BackBorkConfig();
     $hostname = gethostname() ?: 'unknown';
     $date = date('Y-m-d');
     $generatedAt = date('Y-m-d H:i:s T');
-    
-    // Gather statistics once (shared across all users)
-    $stats = gatherDailyStats();
-    
-    // Determine overall status
-    $hasFailures = ($stats['backup_failures'] > 0 || $stats['restore_failures'] > 0);
-    $hasActivity = ($stats['total_events'] > 0);
-    $statusEmoji = $hasFailures ? '⚠️' : ($hasActivity ? '✅' : 'ℹ️');
-    $statusText = $hasFailures ? 'Issues Detected' : ($hasActivity ? 'All Good' : 'No Activity');
     
     // Find all users with daily summary enabled
     $usersToNotify = [];
@@ -374,10 +294,10 @@ function sendDailySummary() {
         $usersToNotify['root'] = $rootConfig;
     }
     
-    // Check reseller users (scan config directory)
-    $configDir = '/usr/local/cpanel/3rdparty/backbork/config';
-    if (is_dir($configDir)) {
-        foreach (glob($configDir . '/*.json') as $configFile) {
+    // Check reseller users (scan users config directory)
+    $usersConfigDir = '/usr/local/cpanel/3rdparty/backbork/users';
+    if (is_dir($usersConfigDir)) {
+        foreach (glob($usersConfigDir . '/*.json') as $configFile) {
             $username = basename($configFile, '.json');
             if ($username === 'root' || $username === 'global') continue;
             
@@ -389,23 +309,32 @@ function sendDailySummary() {
     }
     
     if (empty($usersToNotify)) {
-        error_log('[BackBork] Daily summary skipped - no users have it enabled');
+        BackBorkConfig::debugLog('Daily Summary skipped - no users have it enabled');
         return;
     }
     
-    error_log('[BackBork] Sending daily summary to ' . count($usersToNotify) . ' user(s)');
+    BackBorkConfig::debugLog('Sending Daily Summary to ' . count($usersToNotify) . ' user(s)');
     
-    // Send summary to each user
+    // Send summary to each user with THEIR OWN filtered stats
     foreach ($usersToNotify as $username => $userConfig) {
         // Skip if no notification channels configured
         if (empty($userConfig['notify_email']) && empty($userConfig['slack_webhook'])) {
             continue;
         }
         
+        // SECURITY: Gather stats filtered for this specific user
+        $stats = gatherDailyStats($username);
+        
+        // Determine status based on THIS USER's stats
+        $hasFailures = ($stats['backup_failures'] > 0 || $stats['restore_failures'] > 0);
+        $hasActivity = ($stats['total_events'] > 0);
+        $statusEmoji = $hasFailures ? '⚠️' : ($hasActivity ? '✅' : 'ℹ️');
+        $statusText = $hasFailures ? 'Issues Detected' : ($hasActivity ? 'All Good' : 'No Activity');
+        
         sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $generatedAt, $statusEmoji, $statusText);
     }
     
-    error_log('[BackBork] Daily summary complete');
+    BackBorkConfig::debugLog('Daily Summary complete!');
 }
 
 /**
@@ -464,8 +393,12 @@ function sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $ge
         $body .= "══════════════════════════\n";
         $body .= "BackBork KISS v" . BACKBORK_VERSION . " | Open-source Disaster Recovery\n";
         
-        mail($userConfig['notify_email'], $subject, $body, "From: backbork@{$hostname}");
-        error_log('[BackBork] Daily summary email sent to ' . $userConfig['notify_email']);
+        $mailResult = mail($userConfig['notify_email'], $subject, $body, "From: backbork@{$hostname}");
+        if ($mailResult) {
+            BackBorkLog::logEvent($username, 'daily_summary', ['email'], true, 'Daily summary email sent to ' . $userConfig['notify_email']);
+        } else {
+            BackBorkLog::logEvent($username, 'daily_summary', ['email'], false, 'Daily summary email failed to ' . $userConfig['notify_email']);
+        }
     }
     
     // ========================================================================
@@ -547,18 +480,31 @@ function sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $ge
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 10
         ]);
-        curl_exec($ch);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
-        error_log('[BackBork] Daily summary sent to Slack');
+        
+        if ($response !== false && $httpCode >= 200 && $httpCode < 300) {
+            BackBorkLog::logEvent($username, 'daily_summary', ['slack'], true, 'Daily summary sent to Slack');
+        } else {
+            $errorMsg = 'Daily summary Slack failed: HTTP ' . $httpCode . ($curlError ? " - {$curlError}" : '');
+            BackBorkLog::logEvent($username, 'daily_summary', ['slack'], false, $errorMsg);
+        }
     }
 }
 
 /**
  * Gather statistics from logs and queue for the past 24 hours.
  * 
+ * SECURITY: Filters results based on user permissions.
+ * - Root user sees all events
+ * - Resellers see only events for accounts they own
+ * 
+ * @param string $forUser The username to filter stats for ('root' sees all)
  * @return array Statistics array with counts and recent errors
  */
-function gatherDailyStats() {
+function gatherDailyStats($forUser = 'root') {
     $stats = [
         'backup_successes' => 0,
         'backup_failures' => 0,
@@ -574,6 +520,17 @@ function gatherDailyStats() {
     ];
     
     $cutoffTime = strtotime('-24 hours');
+    $isRoot = ($forUser === 'root');
+    
+    // Get list of accounts this user owns (for non-root filtering)
+    $userOwnedAccounts = [];
+    if (!$isRoot) {
+        $accountsApi = new BackBorkWhmApiAccounts();
+        $accessibleAccounts = $accountsApi->getAccessibleAccounts($forUser, false);
+        foreach ($accessibleAccounts as $acc) {
+            $userOwnedAccounts[] = $acc['user'];
+        }
+    }
     
     // Parse operations log for last 24 hours
     $logFile = BackBorkLog::LOG_FILE;
@@ -587,6 +544,26 @@ function gatherDailyStats() {
             // Check if within 24 hour window
             $timestamp = strtotime($entry['timestamp'] ?? '');
             if ($timestamp < $cutoffTime) continue;
+            
+            // SECURITY: Filter by user ownership for non-root
+            if (!$isRoot) {
+                $entryUser = $entry['user'] ?? '';
+                $entryAccounts = $entry['accounts'] ?? [];
+                
+                // Skip if this event wasn't triggered by this user
+                // and doesn't involve any of their accounts
+                $involvesUserAccounts = false;
+                foreach ($entryAccounts as $acc) {
+                    if (in_array($acc, $userOwnedAccounts)) {
+                        $involvesUserAccounts = true;
+                        break;
+                    }
+                }
+                
+                if ($entryUser !== $forUser && !$involvesUserAccounts) {
+                    continue;
+                }
+            }
             
             $stats['total_events']++;
             $type = $entry['type'] ?? '';
@@ -637,18 +614,38 @@ function gatherDailyStats() {
         }
     }
     
-    // Get current queue status
+    // Get current queue status (filtered by user)
     $queue = new BackBorkQueue();
-    $queueData = $queue->getQueue('root', true);
-    $stats['queue_pending'] = count($queueData['queued'] ?? []);
+    $queueData = $queue->getQueue($forUser, $isRoot);
     
-    // Count completed/failed from completed directory
+    // Filter queued jobs by user ownership
+    $queuedJobs = $queueData['queued'] ?? [];
+    if (!$isRoot) {
+        $queuedJobs = array_filter($queuedJobs, function($job) use ($forUser, $userOwnedAccounts) {
+            if (($job['user'] ?? '') === $forUser) return true;
+            $jobAccounts = $job['accounts'] ?? [];
+            return !empty(array_intersect($jobAccounts, $userOwnedAccounts));
+        });
+    }
+    $stats['queue_pending'] = count($queuedJobs);
+    
+    // Count completed/failed from completed directory (filtered by user)
     $completedDir = BackBorkQueue::getCompletedDir();
     if (is_dir($completedDir)) {
         $completedFiles = glob($completedDir . '/*.json');
         foreach ($completedFiles as $file) {
             $job = json_decode(file_get_contents($file), true);
             if ($job) {
+                // SECURITY: Filter by user ownership for non-root
+                if (!$isRoot) {
+                    $jobUser = $job['user'] ?? '';
+                    $jobAccounts = $job['accounts'] ?? [];
+                    $involvesUserAccounts = !empty(array_intersect($jobAccounts, $userOwnedAccounts));
+                    if ($jobUser !== $forUser && !$involvesUserAccounts) {
+                        continue;
+                    }
+                }
+                
                 if (($job['status'] ?? '') === 'failed') {
                     $stats['queue_failed']++;
                 } else {
@@ -664,4 +661,92 @@ function gatherDailyStats() {
     });
     
     return $stats;
+}
+
+// ============================================================================
+// UNIFIED ROOT NOTIFICATION SYSTEM
+// ============================================================================
+
+/**
+ * Send a notification to root user for system events.
+ * 
+ * Centralized function for all root-only notifications (cron errors, pruning,
+ * queue failures, etc.). Checks global config for the specific notification
+ * type's enabled flag before sending.
+ * 
+ * @param string $eventType Event type (cron_health, pruning, queue_failure, etc.)
+ * @param string $globalConfigKey Key in global config to check if enabled (e.g., 'notify_cron_errors')
+ * @param array $data Event-specific data to include in notification
+ * @return bool True if notification was sent, false if skipped
+ */
+function sendRootNotification($eventType, $globalConfigKey, $data = []) {
+    $config = new BackBorkConfig();
+    
+    // Check if this notification type is enabled in global config
+    $globalConfig = $config->getGlobalConfig();
+    if (!empty($globalConfigKey) && isset($globalConfig[$globalConfigKey]) && $globalConfig[$globalConfigKey] === false) {
+        BackBorkConfig::debugLog("Root notification '{$eventType}' skipped: {$globalConfigKey} is disabled");
+        return false;
+    }
+    
+    // Load root user's notification channels
+    $rootConfig = $config->getUserConfig('root');
+    
+    if (empty($rootConfig['notify_email']) && empty($rootConfig['slack_webhook'])) {
+        BackBorkConfig::debugLog("Root notification '{$eventType}' skipped: no channels configured");
+        return false;
+    }
+    
+    // Add standard context to data
+    $data['hostname'] = $data['hostname'] ?? (gethostname() ?: 'unknown');
+    $data['timestamp'] = $data['timestamp'] ?? date('Y-m-d H:i:s T');
+    
+    // Send via BackBorkNotify
+    $notify = new BackBorkNotify();
+    $notify->sendNotification($eventType, $data, $rootConfig);
+    
+    BackBorkConfig::debugLog("Root notification '{$eventType}' sent");
+    return true;
+}
+
+/**
+ * Send queue failure notifications.
+ * 
+ * @param array $queueResults Results from processQueue() with failed_accounts and results
+ */
+function sendQueueFailureNotifications($queueResults) {
+    $failedAccounts = $queueResults['failed_accounts'] ?? [];
+    $results = $queueResults['results'] ?? [];
+    
+    if (empty($failedAccounts)) {
+        return;
+    }
+    
+    BackBorkConfig::debugLog('Sending queue failure notification for ' . count($failedAccounts) . ' accounts');
+    
+    // Gather error details from results
+    $errorDetails = [];
+    foreach ($results as $jobId => $result) {
+        if (!$result['success']) {
+            $errorDetails[] = $jobId . ': ' . ($result['message'] ?? 'Unknown error');
+        }
+    }
+    
+    sendRootNotification('queue_failure', 'notify_queue_failure', [
+        'accounts' => $failedAccounts,
+        'errors' => $errorDetails
+    ]);
+}
+
+/**
+ * Send pruning notification to root if enabled.
+ * 
+ * @param array $pruneResults Results from pruneOldBackups() with pruned count and details
+ */
+function sendPruningNotification($pruneResults) {
+    sendRootNotification('pruning', 'notify_pruning', [
+        'pruned_count' => $pruneResults['pruned'] ?? 0,
+        'details' => $pruneResults['details'] ?? [],
+        'message' => $pruneResults['message'] ?? ''
+    ]);
 }

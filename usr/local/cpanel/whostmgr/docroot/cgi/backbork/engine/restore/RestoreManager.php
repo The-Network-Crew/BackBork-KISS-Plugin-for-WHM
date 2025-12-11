@@ -86,20 +86,24 @@ class BackBorkRestoreManager {
         
         // Check retrieval success
         if (!$retrieveResult['success']) {
+            // Extract account from filename for logging even on failure
+            $account = $this->extractAccountFromFilename(basename($backupFile));
+            $this->logOperation($user, 'restore', [$account], false, 'Retrieval failed: ' . ($retrieveResult['message'] ?? 'Unknown error'));
             return $retrieveResult;
         }
         
         $localPath = $retrieveResult['local_path'];
         $filesToCleanup = [$localPath];
         
+        // Extract account name from backup filename for logging/notifications
+        $account = $this->extractAccountFromFilename(basename($backupFile));
+        
         // Verify backup file integrity and format
         $verification = $this->retrieval->verifyBackupFile($localPath);
         if (!$verification['valid']) {
+            $this->logOperation($user, 'restore', [$account], false, 'Invalid backup file: ' . $verification['message']);
             return ['success' => false, 'message' => 'Invalid backup file: ' . $verification['message']];
         }
-        
-        // Extract account name from backup filename for logging/notifications
-        $account = $this->extractAccountFromFilename(basename($backupFile));
         
         // Check for accompanying DB backup file (from mariadb-backup/mysqlbackup)
         $dbBackupFile = $this->findDbBackupFile($backupFile, $destinationId);
@@ -114,13 +118,15 @@ class BackBorkRestoreManager {
             }
         }
         
-        // Send start notification if user has enabled it
-        if (!empty($userConfig['notify_start'])) {
+        // Send start notification if user has enabled it (new key with legacy fallback)
+        $notifyStart = !empty($userConfig['notify_restore_start']) || (!isset($userConfig['notify_restore_start']) && !empty($userConfig['notify_start']));
+        if ($notifyStart) {
             $this->notify->sendNotification(
                 'restore_start',
                 [
                     'account' => $account,
                     'backup_file' => $backupFile,
+                    'destination' => $destinationId,
                     'user' => $user
                 ],
                 $userConfig
@@ -165,8 +171,12 @@ class BackBorkRestoreManager {
         // Log the operation to centralized log
         $this->logOperation($user, 'restore', [$account], $result['success'], $result['message']);
         
+        // Check notification preferences (new keys with legacy fallback)
+        $notifySuccess = !empty($userConfig['notify_restore_success']) || (!isset($userConfig['notify_restore_success']) && !empty($userConfig['notify_success']));
+        $notifyFailure = !empty($userConfig['notify_restore_failure']) || (!isset($userConfig['notify_restore_failure']) && !empty($userConfig['notify_failure']));
+        
         // Send success notification if restore succeeded and notifications enabled
-        if ($result['success'] && !empty($userConfig['notify_success'])) {
+        if ($result['success'] && $notifySuccess) {
             $this->notify->sendNotification(
                 'restore_success',
                 [
@@ -177,7 +187,7 @@ class BackBorkRestoreManager {
                 $userConfig
             );
         // Send failure notification if restore failed and notifications enabled
-        } elseif (!$result['success'] && !empty($userConfig['notify_failure'])) {
+        } elseif (!$result['success'] && $notifyFailure) {
             $this->notify->sendNotification(
                 'restore_failure',
                 [

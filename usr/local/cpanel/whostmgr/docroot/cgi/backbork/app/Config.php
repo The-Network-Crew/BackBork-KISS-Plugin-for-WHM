@@ -188,6 +188,9 @@ class BackBorkConfig {
             'schedules_locked_at' => null,   // Timestamp when lock was enabled
             'schedules_locked_by' => null,   // User who enabled the lock
             'root_only_destinations' => [],  // Destination IDs only visible to root
+            'notify_cron_errors' => true,    // Root-only: alert on cron health issues
+            'notify_queue_failure' => true,  // Root-only: alert on queue processing failures
+            'notify_pruning' => false,       // Root-only: alert when backups are pruned
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s')
         ];
@@ -435,12 +438,27 @@ class BackBorkConfig {
      */
     public function getDefaults() {
         return [
-            // Notification settings
+            // Notification settings - channels
             'notify_email' => '',           // Email for alerts (empty = disabled)
             'slack_webhook' => '',          // Slack webhook URL (empty = disabled)
-            'notify_success' => true,       // Send notification on successful backup
-            'notify_failure' => true,       // Send notification on failed backup
-            'notify_start' => false,        // Send notification when backup starts
+            
+            // Notification settings - backup events
+            'notify_backup_success' => true,    // Notify on successful backup
+            'notify_backup_failure' => true,    // Notify on failed backup
+            'notify_backup_start' => false,     // Notify when backup starts
+            
+            // Notification settings - restore events
+            'notify_restore_success' => true,   // Notify on successful restore
+            'notify_restore_failure' => true,   // Notify on failed restore
+            'notify_restore_start' => false,    // Notify when restore starts
+            
+            // Notification settings - user events
+            'notify_daily_summary' => false,    // Daily summary at midnight
+            
+            // Legacy compatibility aliases (mapped to new keys)
+            'notify_success' => true,       // Deprecated: use notify_backup_success
+            'notify_failure' => true,       // Deprecated: use notify_backup_failure
+            'notify_start' => false,        // Deprecated: use notify_backup_start
             
             // Backup settings
             'compression_level' => '5',     // Gzip compression level (1-9)
@@ -518,7 +536,16 @@ class BackBorkConfig {
         }
         
         // Boolean settings - cast to bool
-        $booleans = ['notify_success', 'notify_failure', 'notify_start', 'debug_mode'];
+        $booleans = [
+            // Legacy notification flags (for backwards compatibility)
+            'notify_success', 'notify_failure', 'notify_start',
+            // Granular notification flags
+            'notify_backup_success', 'notify_backup_failure', 'notify_backup_start',
+            'notify_restore_success', 'notify_restore_failure', 'notify_restore_start',
+            'notify_daily_summary',
+            // Other booleans
+            'debug_mode'
+        ];
         foreach ($booleans as $key) {
             if (isset($config[$key])) {
                 $sanitized[$key] = (bool)$config[$key];

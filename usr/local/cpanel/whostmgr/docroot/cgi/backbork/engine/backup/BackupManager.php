@@ -104,8 +104,9 @@ class BackBorkBackupManager {
         $errors = [];
         $logMessages = [];
         
-        // Send start notification if user has enabled it
-        if (!empty($userConfig['notify_start'])) {
+        // Send start notification if user has enabled it (check new key, fallback to legacy)
+        $notifyStart = !empty($userConfig['notify_backup_start']) || (!isset($userConfig['notify_backup_start']) && !empty($userConfig['notify_start']));
+        if ($notifyStart) {
             $this->notify->sendNotification(
                 'backup_start',
                 [
@@ -138,8 +139,12 @@ class BackBorkBackupManager {
         // Log the complete operation with all account results
         $this->logOperation($user, 'backup', $accounts, $success, implode("\n", $logMessages));
         
+        // Check notification preferences (new keys with legacy fallback)
+        $notifySuccess = !empty($userConfig['notify_backup_success']) || (!isset($userConfig['notify_backup_success']) && !empty($userConfig['notify_success']));
+        $notifyFailure = !empty($userConfig['notify_backup_failure']) || (!isset($userConfig['notify_backup_failure']) && !empty($userConfig['notify_failure']));
+        
         // Send success notification if all backups succeeded and notifications enabled
-        if ($success && !empty($userConfig['notify_success'])) {
+        if ($success && $notifySuccess) {
             $this->notify->sendNotification(
                 'backup_success',
                 [
@@ -151,7 +156,7 @@ class BackBorkBackupManager {
                 $userConfig
             );
         // Send failure notification if any backup failed and notifications enabled
-        } elseif (!$success && !empty($userConfig['notify_failure'])) {
+        } elseif (!$success && $notifyFailure) {
             $this->notify->sendNotification(
                 'backup_failure',
                 [
@@ -391,8 +396,12 @@ class BackBorkBackupManager {
                 }
             }
             
+            // Include account prefix in file path since backups are stored in $account/ subdirectory
+            $filePath = $backupAccount ? $backupAccount . '/' . $filename : $filename;
+            
             $backups[] = [
-                'file' => $filename,
+                'file' => $filePath,
+                'display_name' => $filename,  // Just filename for display
                 'size' => $this->formatSize($file['size'] ?? 0),
                 'date' => $file['date'] ?? 'Unknown',
                 'location' => 'remote',
@@ -480,7 +489,7 @@ class BackBorkBackupManager {
                 'account' => is_array($entry['accounts']) ? implode(', ', $entry['accounts']) : $entry['accounts'],
                 'user' => $entry['user'],
                 'status' => $entry['status'],
-                'message' => substr($entry['message'], 0, 200)  // Truncate long messages
+                'message' => $entry['message']
             ];
         }
         

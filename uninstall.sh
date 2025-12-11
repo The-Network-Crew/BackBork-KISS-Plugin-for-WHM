@@ -29,13 +29,37 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Function to prompt for y/n with strict validation
+prompt_yn() {
+    local prompt="$1"
+    local result_var="$2"
+    local response
+    
+    while true; do
+        read -p "$prompt" response
+        case "$response" in
+            y|Y)
+                eval "$result_var='y'"
+                return 0
+                ;;
+            n|N)
+                eval "$result_var='n'"
+                return 0
+                ;;
+            *)
+                echo -e "${RED}Invalid input. Please enter y or n.${NC}"
+                ;;
+        esac
+    done
+}
+
 # Confirm uninstallation
 echo -e "${YELLOW}WARNING: This will remove BackBork KISS and all its configuration.${NC}"
 echo ""
-read -p "Do you want to keep your configuration and logs? (y/n): " KEEP_CONFIG
-read -p "Are you sure you want to uninstall BackBork KISS? (y/n): " CONFIRM
+prompt_yn "Do you want to keep your configuration and logs? (y/n): " KEEP_CONFIG
+prompt_yn "Are you sure you want to uninstall BackBork KISS? (y/n): " CONFIRM
 
-if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+if [ "$CONFIRM" != "y" ]; then
     echo -e "${BLUE}Uninstallation cancelled.${NC}"
     exit 0
 fi
@@ -83,7 +107,7 @@ fi
 echo -e "${GREEN}  ✓ Icons removed${NC}"
 
 # Handle configuration
-if [ "$KEEP_CONFIG" = "y" ] || [ "$KEEP_CONFIG" = "Y" ]; then
+if [ "$KEEP_CONFIG" = "y" ]; then
     echo -e "${BLUE}Keeping configuration and logs in ${CONFIG_DIR}${NC}"
     echo -e "${YELLOW}  Note: You can manually remove this directory later with:${NC}"
     echo "  rm -rf ${CONFIG_DIR}"

@@ -12,6 +12,9 @@
  * - restore_start: Restore job initiated
  * - restore_success: Restore completed successfully
  * - restore_failure: Restore failed with errors
+ * - cron_health: Cron health check detected an issue (root only)
+ * - queue_failure: Queue processing encountered failures (root only)
+ * - pruning: Backup retention pruning completed (root only)
  * - test: Test notification to verify configuration
  * 
  * Template Variables:
@@ -261,6 +264,57 @@ class BackBorkNotify {
                               "Error: {$data['error']}",
                     'color' => '#e74c3c',  // Red - failure
                     'emoji' => '❌'
+                ];
+                
+            // ================================================================
+            // SYSTEM/CRON EVENTS (Root Only)
+            // ================================================================
+            
+            case 'cron_health':
+                $issue = $data['issue'] ?? 'Unknown issue';
+                $lastRun = $data['last_run'] ?? 'Unknown';
+                return [
+                    'subject' => "[BackBork] CRON HEALTH ALERT - {$hostname}",
+                    'body' => "BackBork cron health check detected an issue!\n\n" .
+                              "Server: {$hostname}\n" .
+                              "Time: {$timestamp}\n" .
+                              "Issue: {$issue}\n" .
+                              "Last Successful Run: {$lastRun}\n\n" .
+                              "Please check your cron configuration and BackBork logs.",
+                    'color' => '#dc2626',  // Red - health alert
+                    'emoji' => '🚨'
+                ];
+                
+            // ================================================================
+            // QUEUE EVENTS
+            // ================================================================
+                
+            case 'queue_failure':
+                $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
+                $errors = is_array($data['errors']) ? implode("\n", $data['errors']) : $data['errors'];
+                return [
+                    'subject' => "[BackBork] Queue Processing FAILED - {$hostname}",
+                    'body' => "Queue processing encountered failures!\n\n" .
+                              "Server: {$hostname}\n" .
+                              "Time: {$timestamp}\n" .
+                              "Affected Accounts: {$accounts}\n\n" .
+                              "Errors:\n{$errors}",
+                    'color' => '#f97316',  // Orange - queue failure
+                    'emoji' => '⚠️'
+                ];
+                
+            case 'pruning':
+                $count = $data['pruned_count'] ?? 0;
+                $details = is_array($data['details']) ? implode("\n", $data['details']) : ($data['details'] ?? '');
+                return [
+                    'subject' => "[BackBork] Backup Pruning Complete - {$hostname}",
+                    'body' => "Retention policy pruning completed.\n\n" .
+                              "Server: {$hostname}\n" .
+                              "Time: {$timestamp}\n" .
+                              "Backups Removed: {$count}\n\n" .
+                              ($details ? "Details:\n{$details}" : ""),
+                    'color' => '#8b5cf6',  // Purple - pruning
+                    'emoji' => '🗑️'
                 ];
                 
             // ================================================================

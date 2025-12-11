@@ -890,10 +890,13 @@
     border-radius: 4px;
     font-family: 'SF Mono', Monaco, 'Menlo', 'Ubuntu Mono', monospace;
     font-size: 11px;
+    line-height: 1.4;
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
     max-width: 350px;
+    max-height: 154px;  /* ~10 lines at 11px font + 1.4 line-height */
+    overflow-y: auto;
     overflow-x: auto;
 }
 
@@ -951,7 +954,7 @@
 }
 
 .log-cell-details {
-    min-width: 25%;
+    min-width: 30%;
 }
 
 /* Tooltip Styles */

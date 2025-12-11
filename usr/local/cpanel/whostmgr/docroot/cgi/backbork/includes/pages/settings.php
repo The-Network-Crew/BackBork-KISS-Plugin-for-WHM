@@ -55,6 +55,26 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
                 <input type="checkbox" id="debug-mode"> 
                 <strong>🐛 Debug Mode</strong> — Verbose to WHM PHP error_log!
             </label>
+            <!-- Cron Error Alerts: Notify root when cron health check fails -->
+            <label>
+                <input type="checkbox" id="notify-cron-errors" checked> 
+                <strong>⚠️ Cron Error Alerts</strong> — Notify if cron stops running!
+            </label>
+            <!-- Queue Failure Alerts: Notify root when queue processing fails -->
+            <label>
+                <input type="checkbox" id="notify-queue-failure" checked> 
+                <strong>📋 Queue Failure Alerts</strong> — Notify on queue errors!
+            </label>
+            <!-- Pruning Alerts: Notify root when backups are pruned by retention policy -->
+            <label>
+                <input type="checkbox" id="notify-pruning"> 
+                <strong>🗑️ Pruning Alerts</strong> — Notify when backups are pruned!
+            </label>
+        </div>
+        <div class="alert alert-info" style="margin-top: 15px;">
+            Once Debug Logging is enabled here, root user needs to:<br>
+            <code>tail -f /usr/local/cpanel/logs/error_log</code><br>
+            and then re-create the problem conditions etc to investigate.
         </div>
     </div>
     <?php endif; ?>
@@ -122,10 +142,22 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
             </div>
         </div>
 
+        <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">📦 Backup Notifications</h4>
         <div class="checkbox-group">
-            <label><input type="checkbox" id="notify-success" checked> Notify on Success</label>
-            <label><input type="checkbox" id="notify-failure" checked> Notify on Failure</label>
-            <label><input type="checkbox" id="notify-start"> Notify on Job Start</label>
+            <label><input type="checkbox" id="notify-backup-success" checked> ✅ Backup Success</label>
+            <label><input type="checkbox" id="notify-backup-failure" checked> ❌ Backup Failure</label>
+            <label><input type="checkbox" id="notify-backup-start"> 🔄 Backup Started</label>
+        </div>
+
+        <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">♻️ Restore Notifications</h4>
+        <div class="checkbox-group">
+            <label><input type="checkbox" id="notify-restore-success" checked> ✅ Restore Success</label>
+            <label><input type="checkbox" id="notify-restore-failure" checked> ❌ Restore Failure</label>
+            <label><input type="checkbox" id="notify-restore-start"> 🔄 Restore Started</label>
+        </div>
+
+        <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">⚙️ System Notifications</h4>
+        <div class="checkbox-group">
             <label><input type="checkbox" id="notify-daily-summary"> 📊 Daily Summary (midnight)</label>
         </div>
     </div>

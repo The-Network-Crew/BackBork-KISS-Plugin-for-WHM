@@ -736,6 +736,10 @@ class BackBorkQueueProcessor {
                 continue;
             }
             
+            // Get schedule owner for logging
+            $scheduleUser = $schedule['user'] ?? 'root';
+            $scheduleName = $schedule['name'] ?? $scheduleId;
+            
             // Get retention count (0 = unlimited, skip pruning)
             $retentionCount = (int)($schedule['retention'] ?? 30);
             if ($retentionCount <= 0) {
@@ -749,6 +753,9 @@ class BackBorkQueueProcessor {
             
             if (!$destination) {
                 $results[$scheduleId] = ['skipped' => true, 'reason' => 'invalid destination'];
+                // Log invalid destination to GUI Log
+                BackBorkLog::logEvent($scheduleUser, 'prune', [$scheduleName], false, 
+                    "Pruning skipped for schedule '{$scheduleName}': invalid destination '{$destinationId}'", 'cron');
                 continue;
             }
             
@@ -767,19 +774,32 @@ class BackBorkQueueProcessor {
             
             // Prune backups for each account in this schedule
             $schedulePruned = 0;
+            $prunedFiles = [];
             foreach ($accounts as $account) {
-                $pruned = $this->pruneAccountBackups($account, $destination, $retentionCount, $validator);
-                $schedulePruned += $pruned;
+                $accountPruneResult = $this->pruneAccountBackups($account, $destination, $retentionCount, $validator);
+                $schedulePruned += $accountPruneResult['count'];
+                if (!empty($accountPruneResult['files'])) {
+                    $prunedFiles = array_merge($prunedFiles, $accountPruneResult['files']);
+                }
             }
             
             $results[$scheduleId] = ['pruned' => $schedulePruned, 'retention_count' => $retentionCount];
             $totalPruned += $schedulePruned;
+            
+            // Log pruning to GUI Log for this schedule (always, even if 0 pruned)
+            if ($schedulePruned > 0) {
+                $fileList = implode(', ', array_slice($prunedFiles, 0, 10));
+                if (count($prunedFiles) > 10) {
+                    $fileList .= ' ... and ' . (count($prunedFiles) - 10) . ' more';
+                }
+                $logMsg = "Pruned {$schedulePruned} backup(s) for schedule '{$scheduleName}' (retention: {$retentionCount}). Deleted: {$fileList}";
+                BackBorkLog::logEvent($scheduleUser, 'prune', $prunedFiles, true, $logMsg, 'cron');
+            }
         }
         
-        // Log pruning activity if anything was deleted
+        // Debug log summary
         if ($totalPruned > 0) {
             BackBorkConfig::debugLog('pruneOldBackups: Pruned ' . $totalPruned . ' old backup(s)');
-            error_log('[BackBork] Retention pruning: Deleted ' . $totalPruned . ' old backup(s)');
         }
         
         return [
@@ -803,10 +823,11 @@ class BackBorkQueueProcessor {
      * @param array $destination Destination configuration
      * @param int $retentionCount Number of backups to keep
      * @param BackBorkDestinationsValidator $validator Validator instance for transport
-     * @return int Number of backups pruned
+     * @return array ['count' => int, 'files' => array] Number of backups pruned and list of deleted files
      */
     private function pruneAccountBackups($account, $destination, $retentionCount, $validator) {
         $pruned = 0;
+        $deletedFiles = [];
         
         // Get appropriate transport for this destination type
         $transport = $validator->getTransportForDestination($destination);
@@ -816,7 +837,7 @@ class BackBorkQueueProcessor {
         $files = $transport->listFiles($accountPath, $destination);
         
         if (empty($files)) {
-            return 0;
+            return ['count' => 0, 'files' => []];
         }
         
         // Collect files with resolved timestamps for sorting
@@ -853,7 +874,7 @@ class BackBorkQueueProcessor {
         
         // If we have retention count or fewer backups, nothing to prune
         if ($totalBackups <= $retentionCount) {
-            return 0;
+            return ['count' => 0, 'files' => []];
         }
         
         // Sort by mtime descending (newest first)
@@ -878,13 +899,14 @@ class BackBorkQueueProcessor {
             
             if ($deleteResult['success']) {
                 $pruned++;
+                $deletedFiles[] = $account . '/' . $filename;
                 BackBorkConfig::debugLog('pruneAccountBackups: Deleted ' . $filename . 
                                         ' (age: ' . round((time() - $backup['mtime']) / 86400) . ' days)');
             } else {
-                error_log('[BackBork] Failed to prune backup: ' . $filename . ' - ' . ($deleteResult['message'] ?? 'Unknown error'));
+                BackBorkConfig::debugLog('Failed to prune backup: ' . $filename . ' - ' . ($deleteResult['message'] ?? 'Unknown error'));
             }
         }
         
-        return $pruned;
+        return ['count' => $pruned, 'files' => $deletedFiles];
     }
 }

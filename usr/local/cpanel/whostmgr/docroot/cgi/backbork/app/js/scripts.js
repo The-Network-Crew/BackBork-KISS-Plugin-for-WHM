@@ -187,13 +187,43 @@
         apiCall('get_config', {}, 'GET').then(data => {
             currentConfig = data || {};
             
-            // Notification settings
+            // Notification settings - channels
             if (data.notify_email) document.getElementById('notify-email').value = data.notify_email;
             if (data.slack_webhook) document.getElementById('slack-webhook').value = data.slack_webhook;
-            if (data.notify_success !== undefined) document.getElementById('notify-success').checked = data.notify_success;
-            if (data.notify_failure !== undefined) document.getElementById('notify-failure').checked = data.notify_failure;
-            if (data.notify_start !== undefined) document.getElementById('notify-start').checked = data.notify_start;
-            if (data.notify_daily_summary !== undefined) document.getElementById('notify-daily-summary').checked = data.notify_daily_summary;
+            
+            // Notification settings - backup events (with legacy fallback)
+            const notifyBackupSuccess = document.getElementById('notify-backup-success');
+            if (notifyBackupSuccess) {
+                notifyBackupSuccess.checked = data.notify_backup_success !== undefined 
+                    ? data.notify_backup_success 
+                    : (data.notify_success !== undefined ? data.notify_success : true);
+            }
+            const notifyBackupFailure = document.getElementById('notify-backup-failure');
+            if (notifyBackupFailure) {
+                notifyBackupFailure.checked = data.notify_backup_failure !== undefined 
+                    ? data.notify_backup_failure 
+                    : (data.notify_failure !== undefined ? data.notify_failure : true);
+            }
+            const notifyBackupStart = document.getElementById('notify-backup-start');
+            if (notifyBackupStart) {
+                notifyBackupStart.checked = data.notify_backup_start !== undefined 
+                    ? data.notify_backup_start 
+                    : (data.notify_start !== undefined ? data.notify_start : false);
+            }
+            
+            // Notification settings - restore events
+            const notifyRestoreSuccess = document.getElementById('notify-restore-success');
+            if (notifyRestoreSuccess) notifyRestoreSuccess.checked = data.notify_restore_success !== undefined ? data.notify_restore_success : true;
+            const notifyRestoreFailure = document.getElementById('notify-restore-failure');
+            if (notifyRestoreFailure) notifyRestoreFailure.checked = data.notify_restore_failure !== undefined ? data.notify_restore_failure : true;
+            const notifyRestoreStart = document.getElementById('notify-restore-start');
+            if (notifyRestoreStart) notifyRestoreStart.checked = data.notify_restore_start !== undefined ? data.notify_restore_start : false;
+            
+            // Notification settings - system events
+            const notifyQueueFailure = document.getElementById('notify-queue-failure');
+            if (notifyQueueFailure) notifyQueueFailure.checked = data.notify_queue_failure !== undefined ? data.notify_queue_failure : true;
+            const notifyDailySummary = document.getElementById('notify-daily-summary');
+            if (notifyDailySummary) notifyDailySummary.checked = data.notify_daily_summary !== undefined ? data.notify_daily_summary : false;
             
             // Backup settings
             if (data.temp_directory) document.getElementById('temp-directory').value = data.temp_directory;
@@ -253,6 +283,24 @@
                 const lockEl = document.getElementById('schedules-locked');
                 if (lockEl) {
                     lockEl.checked = schedulesLocked;
+                }
+                
+                // Set cron error alerts checkbox (root only)
+                const cronErrorsEl = document.getElementById('notify-cron-errors');
+                if (cronErrorsEl) {
+                    cronErrorsEl.checked = data._global.notify_cron_errors !== undefined ? data._global.notify_cron_errors : true;
+                }
+                
+                // Set queue failure alerts checkbox (root only)
+                const queueFailureEl = document.getElementById('notify-queue-failure');
+                if (queueFailureEl) {
+                    queueFailureEl.checked = data._global.notify_queue_failure !== undefined ? data._global.notify_queue_failure : true;
+                }
+                
+                // Set pruning alerts checkbox (root only)
+                const pruningEl = document.getElementById('notify-pruning');
+                if (pruningEl) {
+                    pruningEl.checked = data._global.notify_pruning !== undefined ? data._global.notify_pruning : false;
                 }
                 
                 // Populate "View as user" dropdown in schedules
@@ -894,13 +942,25 @@
         if (btnSaveSettings) {
             btnSaveSettings.addEventListener('click', function() {
                 const debugModeEl = document.getElementById('debug-mode');
+                const cronErrorsEl = document.getElementById('notify-cron-errors');
+                const queueFailureEl = document.getElementById('notify-queue-failure');
+                const pruningEl = document.getElementById('notify-pruning');
                 const config = {
-                    // Notification settings
+                    // Notification settings - channels
                     notify_email: document.getElementById('notify-email').value,
                     slack_webhook: document.getElementById('slack-webhook').value,
-                    notify_success: document.getElementById('notify-success').checked,
-                    notify_failure: document.getElementById('notify-failure').checked,
-                    notify_start: document.getElementById('notify-start').checked,
+                    
+                    // Notification settings - backup events
+                    notify_backup_success: document.getElementById('notify-backup-success').checked,
+                    notify_backup_failure: document.getElementById('notify-backup-failure').checked,
+                    notify_backup_start: document.getElementById('notify-backup-start').checked,
+                    
+                    // Notification settings - restore events
+                    notify_restore_success: document.getElementById('notify-restore-success').checked,
+                    notify_restore_failure: document.getElementById('notify-restore-failure').checked,
+                    notify_restore_start: document.getElementById('notify-restore-start').checked,
+                    
+                    // Notification settings - system events (user-level)
                     notify_daily_summary: document.getElementById('notify-daily-summary').checked,
                     
                     // Debug mode
@@ -960,6 +1020,21 @@
                     skip_linkednodes: document.getElementById('skip-linkednodes').checked,
                     skip_integrationlinks: document.getElementById('skip-integrationlinks').checked
                 };
+                
+                // Root-only: include cron error alerts setting in global config
+                if (cronErrorsEl) {
+                    config._global_notify_cron_errors = cronErrorsEl.checked;
+                }
+                
+                // Root-only: include queue failure alerts setting in global config
+                if (queueFailureEl) {
+                    config._global_notify_queue_failure = queueFailureEl.checked;
+                }
+                
+                // Root-only: include pruning alerts setting in global config
+                if (pruningEl) {
+                    config._global_notify_pruning = pruningEl.checked;
+                }
                 
                 apiCall('save_config', config).then(data => {
                     if (data.success) {
@@ -1266,7 +1341,9 @@
             if (data.backups && data.backups.length > 0) {
                 select.innerHTML = '<option value="">-- Select Backup --</option>';
                 data.backups.forEach(backup => {
-                    select.innerHTML += `<option value="${backup.file}">${backup.file} (${backup.size}, ${backup.date})</option>`;
+                    // Use full path (file) as value, display_name or filename for label
+                    const displayName = backup.display_name || backup.file;
+                    select.innerHTML += `<option value="${backup.file}">${displayName} (${backup.size}, ${backup.date})</option>`;
                 });
             } else {
                 select.innerHTML = '<option value="">No backups found</option>';
