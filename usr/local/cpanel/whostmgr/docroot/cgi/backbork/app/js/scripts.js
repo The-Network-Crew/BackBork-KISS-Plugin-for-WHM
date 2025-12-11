@@ -240,16 +240,19 @@
             const notifyDailySummary = document.getElementById('notify-daily-summary');
             if (notifyDailySummary) notifyDailySummary.checked = data.notify_daily_summary !== undefined ? data.notify_daily_summary : false;
             
-            // Backup settings
-            if (data.temp_directory) document.getElementById('temp-directory').value = data.temp_directory;
+            // Backup settings (temp-directory is root-only)
+            const tempDirEl = document.getElementById('temp-directory');
+            if (tempDirEl && data.temp_directory) tempDirEl.value = data.temp_directory;
             if (data.mysql_version) document.getElementById('mysql-version').value = data.mysql_version;
             if (data.dbbackup_type) document.getElementById('dbbackup-type').value = data.dbbackup_type;
             if (data.compression_option) document.getElementById('compression-option').value = data.compression_option;
             
-            // Backup mode options
+            // Backup mode options (opt-split and opt-use-backups are root-only)
             if (data.opt_incremental) document.getElementById('opt-incremental').checked = data.opt_incremental;
-            if (data.opt_split) document.getElementById('opt-split').checked = data.opt_split;
-            if (data.opt_use_backups) document.getElementById('opt-use-backups').checked = data.opt_use_backups;
+            const optSplitEl = document.getElementById('opt-split');
+            if (optSplitEl && data.opt_split) optSplitEl.checked = data.opt_split;
+            const optUseBackupsEl = document.getElementById('opt-use-backups');
+            if (optUseBackupsEl && data.opt_use_backups) optUseBackupsEl.checked = data.opt_use_backups;
             
             // Skip options
             const skipOptions = ['homedir', 'publichtml', 'mysql', 'pgsql', 'logs', 'mailconfig', 
@@ -266,7 +269,8 @@
                 document.getElementById('db-backup-method').value = data.db_backup_method;
                 toggleDbBackupOptions(data.db_backup_method);
             }
-            if (data.db_backup_target_dir) document.getElementById('db-backup-target-dir').value = data.db_backup_target_dir;
+            const dbBackupTargetDirEl = document.getElementById('db-backup-target-dir');
+            if (dbBackupTargetDirEl && data.db_backup_target_dir) dbBackupTargetDirEl.value = data.db_backup_target_dir;
             
             // MariaDB backup options
             if (data.mdb_compress) document.getElementById('mdb-compress').checked = data.mdb_compress;
@@ -983,9 +987,9 @@
                     // Notification settings - system events (user-level)
                     notify_daily_summary: document.getElementById('notify-daily-summary').checked,
                     
-                    // Database backup settings
+                    // Database backup settings (db_backup_target_dir is root-only)
                     db_backup_method: document.getElementById('db-backup-method').value,
-                    db_backup_target_dir: document.getElementById('db-backup-target-dir').value,
+                    db_backup_target_dir: document.getElementById('db-backup-target-dir')?.value || '',
                     
                     // MariaDB backup options
                     mdb_compress: document.getElementById('mdb-compress').checked,
@@ -1001,16 +1005,16 @@
                     myb_backup_dir: document.getElementById('myb-backup-dir').value,
                     myb_extra_args: document.getElementById('myb-extra-args').value,
                     
-                    // pkgacct settings
-                    temp_directory: document.getElementById('temp-directory').value,
+                    // pkgacct settings (temp_directory is root-only)
+                    temp_directory: document.getElementById('temp-directory')?.value || '',
                     mysql_version: document.getElementById('mysql-version').value,
                     dbbackup_type: document.getElementById('dbbackup-type').value,
                     compression_option: document.getElementById('compression-option').value,
                     
-                    // Backup mode options
+                    // Backup mode options (opt_split and opt_use_backups are root-only)
                     opt_incremental: document.getElementById('opt-incremental').checked,
-                    opt_split: document.getElementById('opt-split').checked,
-                    opt_use_backups: document.getElementById('opt-use-backups').checked,
+                    opt_split: document.getElementById('opt-split')?.checked || false,
+                    opt_use_backups: document.getElementById('opt-use-backups')?.checked || false,
                     
                     // Skip options
                     skip_homedir: document.getElementById('skip-homedir').checked,

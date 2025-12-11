@@ -84,6 +84,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
         </div>
     </div>
 
+    <?php if ($settingsIsRoot): ?>
     <div class="backbork-card">
         <h3>Destination Configuration</h3>
         <div class="alert alert-info">
@@ -97,7 +98,6 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
         </a>
     </div>
 
-    <?php if ($settingsIsRoot): ?>
     <!-- ================================================================
          ROOT-ONLY: Destination Visibility
          Control which destinations resellers can see and use
@@ -182,10 +182,12 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
                     <option value="skip">Skip databases entirely</option>
                 </select>
             </div>
+            <?php if ($settingsIsRoot): ?>
             <div class="form-group">
                 <label for="db-backup-target-dir">Database Backup Directory</label>
                 <input type="text" id="db-backup-target-dir" placeholder="/home/backbork_tmp/db" value="">
             </div>
+            <?php endif; ?>
         </div>
 
         <div id="mariadb-backup-options" style="display: none;">
@@ -231,10 +233,12 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
         <h3>Backup Settings (pkgacct options)</h3>
         
         <div class="form-row">
+            <?php if ($settingsIsRoot): ?>
             <div class="form-group">
                 <label for="temp-directory">Temporary Directory</label>
                 <input type="text" id="temp-directory" value="/home/backbork_tmp" placeholder="/home/backbork_tmp">
             </div>
+            <?php endif; ?>
             <div class="form-group">
                 <label for="mysql-version">Target MySQL Version (optional)</label>
                 <input type="text" id="mysql-version" placeholder="e.g. 8.0">
@@ -262,8 +266,10 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
         <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">Backup Mode</h4>
         <div class="checkbox-group">
             <label><input type="checkbox" id="opt-incremental"> Incremental (refresh existing)</label>
+            <?php if ($settingsIsRoot): ?>
             <label><input type="checkbox" id="opt-split"> Split into chunks</label>
             <label><input type="checkbox" id="opt-use-backups"> Use last backup as template</label>
+            <?php endif; ?>
         </div>
 
         <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">Exclude from Backup</h4>
