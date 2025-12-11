@@ -442,6 +442,88 @@ Lists available backups stored on a remote destination. You can optionally filte
 
 ---
 
+### Data Management
+
+#### `GET ?action=get_backup_accounts`
+
+Lists accounts that have backup files at a destination. Only returns accounts the current user can access.
+
+**Request:**
+```
+?action=get_backup_accounts&destination=local
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "accounts": ["account1", "account2", "account3"]
+}
+```
+
+> [!NOTE]
+> Only works for Local destinations. Remote destinations return an error.
+
+#### `GET ?action=list_backups`
+
+Lists backup files for a specific account at a destination.
+
+**Request:**
+```
+?action=list_backups&destination=local&account=someuser
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "backups": [
+    {
+      "file": "cpmove-someuser_2024-01-14_02-00-00.tar.gz",
+      "size": 1048576000,
+      "modified": 1705197600
+    },
+    {
+      "file": "cpmove-someuser_2024-01-15_02-00-00.tar.gz",
+      "size": 1073741824,
+      "modified": 1705284000
+    }
+  ]
+}
+```
+
+> [!NOTE]
+> Results are sorted by modified date (oldest first). Only works for Local destinations.
+
+#### `POST ?action=delete_backup`
+
+Deletes a specific backup file from a destination.
+
+**Request:**
+```json
+{
+  "destination": "local",
+  "account": "someuser",
+  "filename": "cpmove-someuser_2024-01-14_02-00-00.tar.gz"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "File deleted successfully"
+}
+```
+
+> [!CAUTION]
+> **This action is irreversible.** The backup file is permanently deleted.
+
+> [!NOTE]
+> Only works for Local destinations. Remote backups (SFTP/FTP) must be managed on the remote storage system.
+
+---
+
 ### Schedule Management
 
 #### `GET ?action=get_queue` (includes schedules)

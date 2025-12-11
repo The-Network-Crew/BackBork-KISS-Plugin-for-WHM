@@ -670,6 +670,9 @@ All require WHM authentication.
 | `?action=get_queue` | GET | Queue status (includes queued, running, and schedules) |
 | `?action=get_backups` | GET | List local backups for an account |
 | `?action=get_remote_backups` | GET | List backups on a remote destination (optional account substring filter) |
+| `?action=get_backup_accounts` | GET | List accounts with backups at a destination |
+| `?action=list_backups` | GET | List backup files for an account at a destination |
+| `?action=delete_backup` | POST | Delete a backup file (local destinations only) |
 | `?action=create_schedule` | POST | Create schedule |
 | `?action=delete_schedule` | POST | Delete schedule |
 | `?action=process_queue` | POST | Manually trigger queue processing (also run by cron) |

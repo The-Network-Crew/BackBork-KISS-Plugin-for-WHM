@@ -72,9 +72,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
             </label>
         </div>
         <div class="alert alert-info" style="margin-top: 15px;">
-            <strong>Debug Logging:</strong> Once enabled, root needs to:<br>
-            <code>tail -f /usr/local/cpanel/logs/error_log</code>
-            &amp; then re-create the problem conditions etc.
+            <strong>Debug Logging:</strong> Once enabled, run <code>tail -f /usr/local/cpanel/logs/error_log</code> and re-create the problem.
         </div>
     </div>
     <?php endif; ?>

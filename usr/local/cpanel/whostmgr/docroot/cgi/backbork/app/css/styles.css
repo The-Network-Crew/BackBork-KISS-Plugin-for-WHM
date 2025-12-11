@@ -28,6 +28,7 @@
     --gray-700: #374151;
     --gray-800: #1f2937;
     --gray-900: #111827;
+    --white: #ffffff;
     
     /* Background Colors */
     --bg-page: #f8fafc;
@@ -984,4 +985,231 @@
     opacity: 1;
     visibility: visible;
     bottom: calc(100% + 6px);
+}
+
+/* ===== DATA BROWSER ===== */
+.data-browser {
+    display: flex;
+    gap: 20px;
+    height: 600px;
+    margin-bottom: 30px;
+}
+
+.accounts-sidebar {
+    width: 20%;
+    min-width: 200px;
+    background: var(--gray-50);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.accounts-header {
+    padding: 15px;
+    background: var(--white);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.accounts-header i {
+    color: var(--primary);
+}
+
+.accounts-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.accounts-list .account-item {
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.accounts-list .account-item:hover {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--white);
+}
+
+.accounts-list .account-item.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--white);
+}
+
+.accounts-loading,
+.accounts-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.backups-main {
+    flex: 1;
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.backups-header {
+    padding: 15px 20px;
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.backups-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.backups-title i {
+    color: var(--success);
+}
+
+.backups-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--gray-100);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.backups-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+}
+
+.backup-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    background: var(--gray-50);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    transition: all 0.15s ease;
+}
+
+.backup-item:hover {
+    background: var(--white);
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.backup-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.backup-timestamp {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.backup-filename {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.backup-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-delete-backup {
+    padding: 8px 14px;
+    background: var(--white);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-delete-backup:hover {
+    background: var(--danger);
+    color: var(--white);
+}
+
+.backups-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 40px;
+}
+
+.backups-placeholder i {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.3;
+}
+
+.backups-placeholder p {
+    font-size: 14px;
+    margin: 0;
+}
+
+.backups-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    gap: 10px;
+}
+
+.backups-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 40px;
+}
+
+.backups-empty i {
+    font-size: 36px;
+    margin-bottom: 10px;
+    opacity: 0.4;
 }

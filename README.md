@@ -29,6 +29,7 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 | 🔄 **Restore Accounts** | Full restore or cherry-pick specific parts |
 | ⏰ **Schedule Backups** | Hourly, daily, weekly, or monthly automation |
 | 🌐 **All Accounts Mode** | Dynamic schedules that auto-include new accounts |
+| 🗂️ **Data Management** | Browse and delete backup files by account |
 | 🔒 **Schedule Lock** | Root can prevent resellers from managing schedules |
 | 📧 **Notifications** | Email and Slack alerts when things happen |
 | 🔥 **Hot DB Backups** | MariaDB-backup support (no table locks!) |
@@ -92,6 +93,12 @@ Set up automated backups on your terms — hourly, daily, weekly, or monthly. Th
 Monitor your backup jobs in real-time. See what's pending, what's running, and trigger manual processing when needed.
 
 ![BackBork Queue Interface](_images/BackBork-Queue.png)
+
+### 🗂️ Data Tab
+
+Browse backup files by account and delete individual backups when needed. Select a destination, pick an account from the A-Z list, and manage your backup data.
+
+![BackBork Data Interface](_images/BackBork-Data.png)
 
 ### 📝 Logs Tab
 

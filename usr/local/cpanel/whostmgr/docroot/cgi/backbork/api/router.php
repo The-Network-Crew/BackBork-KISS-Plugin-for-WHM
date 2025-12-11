@@ -474,6 +474,193 @@ switch ($action) {
         echo json_encode($result);
         break;
     
+    /**
+     * Delete a backup file from a destination
+     * Only works for Local destinations (remote deletion not supported)
+     */
+    case 'delete_backup':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $destinationId = isset($data['destination']) ? $data['destination'] : '';
+        // Accept 'path' (full), 'filename', or 'backup_file'
+        $backupPath = isset($data['path']) ? $data['path'] : '';
+        $backupFile = isset($data['filename']) ? $data['filename'] : 
+                     (isset($data['backup_file']) ? $data['backup_file'] : '');
+        
+        if (empty($destinationId) || (empty($backupFile) && empty($backupPath))) {
+            echo json_encode(['success' => false, 'message' => 'Destination and backup file are required']);
+            break;
+        }
+        
+        // Extract account name from backup filename for permission check
+        $account = isset($data['account']) ? $data['account'] : null;
+        $fileToCheck = $backupPath ?: $backupFile;
+        if (!$account && preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', basename($fileToCheck), $matches)) {
+            $account = $matches[1];
+        }
+        
+        // Security: Validate user can access this account's backups
+        if ($account && !$acl->canAccessAccount($account)) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        
+        // Get destination info
+        $parser = new BackBorkDestinationsParser();
+        $destination = $parser->getDestinationById($destinationId);
+        
+        if (!$destination) {
+            echo json_encode(['success' => false, 'message' => 'Destination not found']);
+            break;
+        }
+        
+        // Only allow deletion from Local destinations
+        if (strtolower($destination['type']) !== 'local') {
+            echo json_encode(['success' => false, 'message' => 'Deletion only supported for local destinations']);
+            break;
+        }
+        
+        // If full path provided, use it directly; otherwise build from filename
+        $basePath = $destination['path'] ?? '/backup';
+        if ($backupPath && strpos($backupPath, $basePath) === 0) {
+            // Full path provided and it's within the destination - use directly
+            $fullPath = $backupPath;
+        } else {
+            // Build path: check account subdir first, then root
+            $accountDir = rtrim($basePath, '/') . '/' . $account . '/' . $backupFile;
+            $rootDir = rtrim($basePath, '/') . '/' . $backupFile;
+            $fullPath = file_exists($accountDir) ? $accountDir : $rootDir;
+        }
+        
+        // Verify file exists and delete
+        if (!file_exists($fullPath)) {
+            echo json_encode(['success' => false, 'message' => 'Backup file not found']);
+            break;
+        }
+        
+        if (unlink($fullPath)) {
+            BackBorkLog::logEvent($currentUser, 'delete', [$account ?? basename($fullPath)], true, 
+                "Deleted backup: " . basename($fullPath), BackBorkBootstrap::getRequestor());
+            echo json_encode(['success' => true, 'message' => 'Backup deleted successfully']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to delete backup file']);
+        }
+        break;
+    
+    /**
+     * Get list of accounts that have backups at a destination
+     * Lists account directories in the backup path
+     */
+    case 'get_backup_accounts':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $destinationId = isset($data['destination']) ? $data['destination'] : 
+                        (isset($_GET['destination']) ? $_GET['destination'] : '');
+        
+        if (empty($destinationId)) {
+            echo json_encode(['success' => false, 'message' => 'Destination is required']);
+            break;
+        }
+        
+        // Get destination info
+        $parser = new BackBorkDestinationsParser();
+        $destination = $parser->getDestinationById($destinationId);
+        
+        if (!$destination) {
+            echo json_encode(['success' => false, 'message' => 'Destination not found']);
+            break;
+        }
+        
+        // Only works for Local destinations
+        if (strtolower($destination['type']) !== 'local') {
+            echo json_encode(['success' => false, 'message' => 'Account listing only supported for local destinations']);
+            break;
+        }
+        
+        $backupDir = isset($destination['path']) ? $destination['path'] : '';
+        if (empty($backupDir) || !is_dir($backupDir)) {
+            echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
+            break;
+        }
+        
+        // List subdirectories (account folders) and filter by ACL
+        $accounts = [];
+        $dirs = glob($backupDir . '/*', GLOB_ONLYDIR);
+        foreach ($dirs as $dir) {
+            $account = basename($dir);
+            if ($acl->canAccessAccount($account)) {
+                $accounts[] = $account;
+            }
+        }
+        
+        sort($accounts);
+        echo json_encode(['success' => true, 'accounts' => $accounts]);
+        break;
+    
+    /**
+     * List backups for a specific account at a destination
+     */
+    case 'list_backups':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $destinationId = isset($data['destination']) ? $data['destination'] : 
+                        (isset($_GET['destination']) ? $_GET['destination'] : '');
+        $account = isset($data['account']) ? $data['account'] : 
+                  (isset($_GET['account']) ? $_GET['account'] : '');
+        
+        if (empty($destinationId) || empty($account)) {
+            echo json_encode(['success' => false, 'message' => 'Destination and account are required']);
+            break;
+        }
+        
+        // Security: Validate user can access this account
+        if (!$acl->canAccessAccount($account)) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        
+        // Get destination info
+        $parser = new BackBorkDestinationsParser();
+        $destination = $parser->getDestinationById($destinationId);
+        
+        if (!$destination) {
+            echo json_encode(['success' => false, 'message' => 'Destination not found']);
+            break;
+        }
+        
+        // Only works for Local destinations
+        if (strtolower($destination['type']) !== 'local') {
+            echo json_encode(['success' => false, 'message' => 'Backup listing only supported for local destinations']);
+            break;
+        }
+        
+        $backupDir = isset($destination['path']) ? $destination['path'] : '';
+        if (empty($backupDir) || !is_dir($backupDir)) {
+            echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
+            break;
+        }
+        
+        // Find all backups in the account's directory
+        $backups = [];
+        $accountDir = rtrim($backupDir, '/') . '/' . $account;
+        
+        if (is_dir($accountDir)) {
+            $files = glob($accountDir . '/cpmove-*.tar.gz');
+            foreach ($files as $file) {
+                $backups[] = [
+                    'file' => basename($file),
+                    'path' => $file,
+                    'size' => filesize($file),
+                    'modified' => filemtime($file)
+                ];
+            }
+        }
+        
+        // Sort by modified date (oldest first)
+        usort($backups, function($a, $b) {
+            return $a['modified'] - $b['modified'];
+        });
+        
+        echo json_encode(['success' => true, 'backups' => $backups]);
+        break;
+    
     // ========================================================================
     // DESTINATION MANAGEMENT
     // ========================================================================

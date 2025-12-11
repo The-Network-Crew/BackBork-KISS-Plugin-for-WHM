@@ -92,6 +92,7 @@ if (!defined('BACKBORK_VERSION')) {
         <div class="backbork-tab active" data-tab="backup">📦 Backup</div>
         <div class="backbork-tab" data-tab="restore">🔄 Restore</div>
         <div class="backbork-tab" data-tab="schedule">⏰ Schedules</div>
+        <div class="backbork-tab" data-tab="data">💾 Data</div>
         <div class="backbork-tab" data-tab="queue">📋 Queue</div>
         <div class="backbork-tab" data-tab="logs">📜 Logs</div>
         <div class="backbork-tab" data-tab="settings">⚙️ Settings</div>
@@ -110,6 +111,9 @@ if (!defined('BACKBORK_VERSION')) {
 
     <!-- Schedule Panel: Configure recurring automated backups -->
     <?php include(__DIR__ . '/../pages/schedule.php'); ?>
+
+    <!-- Data Panel: Browse and delete backup files -->
+    <?php include(__DIR__ . '/../pages/data.php'); ?>
 
     <!-- Queue Panel: View and manage pending/running jobs -->
     <?php include(__DIR__ . '/../pages/queue.php'); ?>
@@ -147,6 +151,29 @@ if (!defined('BACKBORK_VERSION')) {
         <div style="margin-top: 20px; text-align: right;">
             <button class="btn btn-secondary" onclick="closeModal('restore-modal')">Cancel</button>
             <button class="btn btn-danger" id="btn-confirm-restore">Confirm Restore</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Backup Confirmation Modal: Shown before deleting a backup file -->
+<div id="delete-backup-modal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-trash-alt"></i> Confirm Deletion</h3>
+            <button class="modal-close" onclick="closeModal('delete-backup-modal')">&times;</button>
+        </div>
+        <div class="alert alert-danger">
+            <strong>Warning:</strong> This will permanently delete the selected backup file. This action cannot be undone.
+        </div>
+        <div class="modal-details">
+            <p><strong>Account:</strong> <span id="delete-backup-account"></span></p>
+            <p><strong>Filename:</strong> <code id="delete-backup-filename"></code></p>
+        </div>
+        <div style="margin-top: 20px; text-align: right;">
+            <button class="btn btn-secondary" onclick="closeModal('delete-backup-modal')">Cancel</button>
+            <button class="btn btn-danger" id="btn-confirm-delete-backup" onclick="confirmDeleteBackup()">
+                <i class="fas fa-trash-alt"></i> Delete Backup
+            </button>
         </div>
     </div>
 </div>

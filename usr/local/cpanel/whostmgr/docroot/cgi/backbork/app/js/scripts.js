@@ -132,6 +132,14 @@
             if (restoreSelect && restoreSelect.options[0]) {
                 restoreSelect.options[0].text = '-- Select Source --';
             }
+            // Data tab: Only show Local destinations and use "Source" terminology
+            const dataSelect = document.getElementById('data-destination');
+            if (dataSelect) {
+                dataSelect.innerHTML = '<option value="">-- Select Source --</option>';
+                destinations.filter(d => d.type.toLowerCase() === 'local').forEach(dest => {
+                    dataSelect.innerHTML += `<option value="${dest.id}">${dest.name}</option>`;
+                });
+            }
         }).catch(err => {
             console.error('Failed to load destinations', err);
             document.querySelectorAll('.destination-select').forEach(select => {
@@ -1378,6 +1386,163 @@
                 alert('Error: ' + (data.message || 'Unknown error'));
             }
         }).catch(err => { console.error('Error delete_schedule', err); alert('Failed to remove schedule: ' + (err.message || 'Unknown error')); });
+    };
+
+    // ===== DATA BROWSER =====
+    let currentDataDestination = null;
+    let currentDataAccount = null;
+    
+    // Load Data Accounts
+    function loadDataAccounts() {
+        const destination = document.getElementById('data-destination').value;
+        const accountsList = document.getElementById('data-accounts-list');
+        const backupsList = document.getElementById('data-backups-list');
+        
+        if (!destination) {
+            accountsList.innerHTML = '<div class="accounts-empty">Select a destination</div>';
+            backupsList.innerHTML = '<div class="backups-placeholder"><i class="fas fa-folder-open"></i><p>Select a destination to browse backups</p></div>';
+            return;
+        }
+        
+        currentDataDestination = destination;
+        currentDataAccount = null;
+        accountsList.innerHTML = '<div class="accounts-loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+        backupsList.innerHTML = '<div class="backups-placeholder"><i class="fas fa-folder-open"></i><p>Select an account to view backups</p></div>';
+        
+        apiCall('get_backup_accounts', { destination: destination }).then(data => {
+            if (data.success && data.accounts && data.accounts.length > 0) {
+                // Sort alphabetically
+                const sorted = data.accounts.sort((a, b) => a.localeCompare(b));
+                accountsList.innerHTML = sorted.map(account => 
+                    `<div class="account-item" onclick="selectDataAccount('${account}')">${account}</div>`
+                ).join('');
+            } else {
+                accountsList.innerHTML = '<div class="accounts-empty">No backup accounts found</div>';
+            }
+        }).catch(err => {
+            console.error('Error get_backup_accounts', err);
+            accountsList.innerHTML = '<div class="accounts-empty">Error loading accounts</div>';
+        });
+    }
+    window.loadDataAccounts = loadDataAccounts;
+    
+    // Select Account to View Backups
+    window.selectDataAccount = function(account) {
+        currentDataAccount = account;
+        
+        // Update active state
+        document.querySelectorAll('#data-accounts-list .account-item').forEach(item => {
+            item.classList.remove('active');
+            if (item.textContent === account) {
+                item.classList.add('active');
+            }
+        });
+        
+        loadAccountBackups(account);
+    };
+    
+    // Load Account Backups
+    function loadAccountBackups(account) {
+        const backupsList = document.getElementById('data-backups-list');
+        const backupsTitle = document.getElementById('data-backups-title');
+        const backupsCount = document.getElementById('data-backups-count');
+        
+        backupsTitle.innerHTML = `<i class="fas fa-archive"></i> ${account}`;
+        backupsList.innerHTML = '<div class="backups-loading"><i class="fas fa-spinner fa-spin"></i> Loading backups...</div>';
+        backupsCount.textContent = '';
+        
+        apiCall('list_backups', { destination: currentDataDestination, account: account }).then(data => {
+            if (data.success && data.backups && data.backups.length > 0) {
+                backupsCount.textContent = `${data.backups.length} backup${data.backups.length !== 1 ? 's' : ''}`;
+                
+                // Sort by date (oldest first based on filename)
+                const sorted = data.backups.sort((a, b) => {
+                    const fileA = a.file || a;
+                    const fileB = b.file || b;
+                    return fileA.localeCompare(fileB);
+                });
+                
+                backupsList.innerHTML = sorted.map(backup => {
+                    const filename = backup.file || backup;
+                    const path = backup.path || '';
+                    const timestamp = formatBackupTimestamp(filename);
+                    return `
+                        <div class="backup-item">
+                            <div class="backup-info">
+                                <span class="backup-timestamp">${timestamp}</span>
+                                <span class="backup-filename">${filename}</span>
+                            </div>
+                            <div class="backup-actions">
+                                <button class="btn-delete-backup" onclick="showDeleteBackupModal('${account}', '${filename}', '${path}')">
+                                    <i class="fas fa-trash-alt"></i> Delete
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                backupsCount.textContent = '0 backups';
+                backupsList.innerHTML = '<div class="backups-empty"><i class="fas fa-inbox"></i><p>No backups found for this account</p></div>';
+            }
+        }).catch(err => {
+            console.error('Error list_backups', err);
+            backupsList.innerHTML = '<div class="backups-empty"><i class="fas fa-exclamation-triangle"></i><p>Error loading backups</p></div>';
+        });
+    }
+    
+    // Format backup timestamp from filename
+    function formatBackupTimestamp(filename) {
+        // Example: cpmove-username.2024-01-15_12-30-00.tar.gz
+        const match = filename.match(/(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})/);
+        if (match) {
+            const date = match[1];
+            const time = match[2].replace(/-/g, ':');
+            return `${date} ${time}`;
+        }
+        return filename;
+    }
+    
+    // Show Delete Backup Modal
+    window.showDeleteBackupModal = function(account, filename, path) {
+        document.getElementById('delete-backup-account').textContent = account;
+        document.getElementById('delete-backup-filename').textContent = filename;
+        document.getElementById('delete-backup-filename').dataset.path = path || '';
+        document.getElementById('delete-backup-modal').classList.add('active');
+    };
+    
+    // Confirm Delete Backup
+    window.confirmDeleteBackup = function() {
+        const account = document.getElementById('delete-backup-account').textContent;
+        const filename = document.getElementById('delete-backup-filename').textContent;
+        const path = document.getElementById('delete-backup-filename').dataset.path || '';
+        const btn = document.getElementById('btn-confirm-delete-backup');
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+        
+        apiCall('delete_backup', {
+            destination: currentDataDestination,
+            account: account,
+            filename: filename,
+            path: path
+        }).then(data => {
+            closeModal('delete-backup-modal');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-trash-alt"></i> Delete Backup';
+            
+            if (data.success) {
+                // Refresh the backups list
+                loadAccountBackups(account);
+            } else {
+                alert('Error: ' + (data.message || 'Failed to delete backup'));
+            }
+        }).catch(err => {
+            console.error('Error delete_backup', err);
+            closeModal('delete-backup-modal');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-trash-alt"></i> Delete Backup';
+            alert('Failed to delete backup: ' + (err.message || 'Unknown error'));
+        });
     };
 
     // Close Modal
