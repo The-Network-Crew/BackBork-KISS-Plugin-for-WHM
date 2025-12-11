@@ -23,9 +23,10 @@ use warnings;
 # Use cPanel's Perl libraries
 use lib '/usr/local/cpanel';
 
-use Cpanel::JSON            ();
+use Cpanel::JSON             ();
+use Cpanel::Backup::Config   ();
 use Cpanel::Backup::Transport();
-use Cpanel::Transport::Files();
+use Cpanel::Transport::Files ();
 
 # Parse command line arguments
 my %args;
@@ -97,7 +98,7 @@ sub get_transport_config {
     my @available_ids = keys %$transport_configs;
     warn "cpanel_transport.pl: Available destination IDs: " . join(', ', @available_ids) . "\n";
     
-    # Find the matching config
+    # Find the matching config - return it directly (it's already a hashref)
     my $config = $transport_configs->{$id};
     
     if (!$config) {
@@ -107,19 +108,8 @@ sub get_transport_config {
     
     warn "cpanel_transport.pl: Found matching destination, type=" . ($config->{'type'} || 'Unknown') . "\n";
     
-    return {
-        id       => $id,
-        type     => $config->{'type'} || 'Unknown',
-        host     => $config->{'host'} || '',
-        port     => $config->{'port'} || 22,
-        path     => $config->{'path'} || '/',
-        username => $config->{'username'} || '',
-        password => $config->{'password'} || '',
-        authtype => $config->{'authtype'} || 'password',
-        keyfile  => $config->{'sshkey'} || '',
-        timeout  => $config->{'timeout'} || 30,
-        passive  => $config->{'passive'} || 0,
-    };
+    # Return the config directly - Cpanel::Transport::Files expects this exact structure
+    return $config;
 }
 
 # ============================================================================
@@ -130,25 +120,65 @@ sub do_ls {
     my ($config, $path) = @_;
     
     my $type = $config->{'type'};
+    my $base_path = $config->{'path'} || '';
     warn "cpanel_transport.pl: do_ls type=$type path=" . ($path || 'default') . "\n";
-    
-    # Build options for transport
-    my %opts = build_transport_opts($config);
-    warn "cpanel_transport.pl: Built opts for host=" . ($opts{'host'} || 'none') . "\n";
+    warn "cpanel_transport.pl: config path (base) = $base_path\n";
     
     eval {
-        my $transport = Cpanel::Transport::Files->new($type, \%opts);
+        # Pass config hashref directly to Transport::Files - it expects this exact structure
+        my $transport = Cpanel::Transport::Files->new($type, $config);
         warn "cpanel_transport.pl: Transport object created\n";
         
-        # Default to manual_backup directory (where cpbackup_transport uploads go)
-        my $list_path = $path || 'manual_backup';
-        warn "cpanel_transport.pl: Listing path=$list_path\n";
+        # Build full path: base_path + manual_backup (where cpbackup_transport uploads)
+        # The transport does NOT auto-prepend the config path, we must do it ourselves
+        my $manual_backup_path = $base_path ? "$base_path/manual_backup" : "manual_backup";
         
-        # Try to list files
-        my $response = $transport->ls($list_path);
-        warn "cpanel_transport.pl: ls() returned, status=" . ($response ? ($response->{'status'} || 'undef') : 'no response') . "\n";
+        # Paths to try - manual_backup under base path first, then base path itself
+        my @paths_to_try;
+        if ($path) {
+            # If explicit path given, prepend base_path
+            @paths_to_try = ($base_path ? "$base_path/$path" : $path);
+        } else {
+            # Default: try manual_backup under base, then base itself
+            @paths_to_try = ($manual_backup_path);
+            push @paths_to_try, $base_path if $base_path;
+        }
         
-        if ($response && $response->{'status'}) {
+        my $response;
+        my $list_path;
+        
+        for my $try_path (@paths_to_try) {
+            $list_path = $try_path;
+            warn "cpanel_transport.pl: Trying to list path='$list_path'\n";
+            
+            eval {
+                $response = $transport->ls($list_path);
+                warn "cpanel_transport.pl: ls() raw response: " . (ref $response || 'not a ref') . "\n";
+                if ($response && ref $response eq 'Cpanel::Transport::Response::ls') {
+                    warn "cpanel_transport.pl: response success=" . ($response->{'success'} || 0) . "\n";
+                }
+            };
+            
+            # If we got a successful response, we're good
+            if ($response && $response->{'success'}) {
+                warn "cpanel_transport.pl: ls() succeeded for path='$list_path'\n";
+                last;
+            }
+            
+            # Check for PathNotFound exception
+            if ($@ && $@ =~ /PathNotFound/) {
+                warn "cpanel_transport.pl: Path '$list_path' not found, trying next...\n";
+                $response = undef;
+                next;
+            }
+            elsif ($@) {
+                warn "cpanel_transport.pl: Error listing '$list_path': $@\n";
+            }
+        }
+        
+        warn "cpanel_transport.pl: ls() final success=" . ($response ? ($response->{'success'} || 0) : 'no response') . "\n";
+        
+        if ($response && $response->{'success'}) {
             my @files;
             my $data = $response->{'data'} || [];
             
@@ -171,7 +201,7 @@ sub do_ls {
             });
         }
         else {
-            my $msg = $response ? ($response->{'message'} || 'Unknown error') : 'No response from transport';
+            my $msg = $response ? ($response->{'msg'} || 'Unknown error') : 'Path not found or empty';
             print_json({ success => 0, message => "Failed to list: $msg", files => [] });
         }
     };
@@ -188,26 +218,34 @@ sub do_delete {
     my ($config, $path) = @_;
     
     my $type = $config->{'type'};
-    
-    # Build options for transport
-    my %opts = build_transport_opts($config);
+    my $base_path = $config->{'path'} || '';
     
     eval {
-        my $transport = Cpanel::Transport::Files->new($type, \%opts);
+        # Pass config hashref directly to Transport::Files
+        my $transport = Cpanel::Transport::Files->new($type, $config);
         
-        # Ensure path is within manual_backup if not already specified
+        # Build full path including base_path and manual_backup
         my $delete_path = $path;
-        if ($delete_path !~ m{^manual_backup/}) {
+        
+        # If path doesn't include manual_backup, prepend it
+        if ($delete_path !~ m{manual_backup/}) {
             $delete_path = "manual_backup/$delete_path";
         }
         
+        # Prepend base_path if configured
+        if ($base_path) {
+            $delete_path = "$base_path/$delete_path";
+        }
+        
+        warn "cpanel_transport.pl: Deleting path='$delete_path'\n";
+        
         my $response = $transport->delete($delete_path);
         
-        if ($response && $response->{'status'}) {
+        if ($response && $response->{'success'}) {
             print_json({ success => 1, message => "Deleted: $delete_path" });
         }
         else {
-            my $msg = $response ? ($response->{'message'} || 'Unknown error') : 'No response from transport';
+            my $msg = $response ? ($response->{'msg'} || 'Unknown error') : 'No response from transport';
             print_json({ success => 0, message => "Failed to delete: $msg" });
         }
     };

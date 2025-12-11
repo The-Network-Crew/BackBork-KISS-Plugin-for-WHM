@@ -104,7 +104,7 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
      * Retrieves backup from remote destination to local path.
      * 
      * NOTE: cpbackup_transport stores uploads in manual_backup/ subdirectory.
-     * This method expects remotePath to be just the filename (not including manual_backup/).
+     * The full remote path is: {destination.path}/manual_backup/{filename}
      * 
      * @param string $remotePath Filename or path at remote destination
      * @param string $localPath Local path to save downloaded file
@@ -126,12 +126,22 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             mkdir($localDir, 0700, true);
         }
         
-        // cpbackup_transport stores files in manual_backup/ subdirectory
-        // Prepend this path if not already present
+        // Build full remote path: base_path/manual_backup/filename
+        // The destination 'path' from WHM API (e.g., 'store') is the base directory
+        $basePath = isset($destination['path']) ? trim($destination['path'], '/') : '';
         $downloadPath = $remotePath;
-        if (strpos($remotePath, 'manual_backup/') !== 0) {
-            $downloadPath = 'manual_backup/' . ltrim($remotePath, '/');
+        
+        // Prepend manual_backup if not already present
+        if (strpos($downloadPath, 'manual_backup/') !== 0 && strpos($downloadPath, 'manual_backup') !== 0) {
+            $downloadPath = 'manual_backup/' . ltrim($downloadPath, '/');
         }
+        
+        // Prepend base path if configured
+        if (!empty($basePath)) {
+            $downloadPath = $basePath . '/' . $downloadPath;
+        }
+        
+        BackBorkConfig::debugLog('Native::download: Full remote path=' . $downloadPath);
         
         // Build download command
         // Syntax: cpbackup_transport_file --transport <id> --download <remote_path> --download-to <local_path>
@@ -140,10 +150,14 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
                         ' --download ' . escapeshellarg($downloadPath) .
                         ' --download-to ' . escapeshellarg($localPath);
         
+        BackBorkConfig::debugLog('Native::download: Command=' . $transportCmd);
+        
         // Execute download command
         $output = [];
         $returnCode = 0;
         exec($transportCmd . ' 2>&1', $output, $returnCode);
+        
+        BackBorkConfig::debugLog('Native::download: Return code=' . $returnCode . ' Output=' . implode("\n", $output));
         
         // Verify download succeeded and file exists
         if ($returnCode === 0 && file_exists($localPath)) {

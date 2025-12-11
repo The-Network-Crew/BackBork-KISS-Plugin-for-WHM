@@ -829,7 +829,9 @@
         const btnRestore = document.getElementById('btn-restore');
         if (btnRestore) {
             btnRestore.addEventListener('click', function() {
-                const destination = document.getElementById('restore-destination').value;
+                const destinationSelect = document.getElementById('restore-destination');
+                const destination = destinationSelect.value;
+                const destinationName = destinationSelect.options[destinationSelect.selectedIndex]?.text || destination;
                 const account = document.getElementById('restore-account').value;
                 const backupFile = document.getElementById('restore-backup-file').value;
                 
@@ -842,7 +844,7 @@
                 document.getElementById('restore-confirm-details').innerHTML = `
                     <p><strong>Account:</strong> ${account}</p>
                     <p><strong>Backup File:</strong> ${backupFile}</p>
-                    <p><strong>Source:</strong> ${destination}</p>
+                    <p><strong>Source:</strong> ${destinationName}</p>
                 `;
                 document.getElementById('restore-modal').classList.add('active');
             });
@@ -1292,11 +1294,9 @@
                 statusMessage.innerHTML = '<div class="loading-spinner"></div> Restore in progress...';
                 progressBar.style.width = '10%';
                 
-                // Show initial log content if available
-                if (data.log) {
-                    logOutput.textContent = data.log;
-                    logOutput.scrollTop = logOutput.scrollHeight;
-                }
+                // Always poll from offset 0 to get full log including our additions
+                // Don't use data.log as it only contains restorepkg output
+                logOffset = 0;
                 
                 // Start polling for log updates (every 500ms)
                 pollInterval = setInterval(pollRestoreLog, 500);
@@ -1306,7 +1306,8 @@
             }
             
             // Handle immediate completion (small restores)
-            if (data.success !== undefined) {
+            if (data.success !== undefined && !data.restore_id) {
+                // No restore_id means it failed before creating a log
                 if (pollInterval) {
                     clearInterval(pollInterval);
                     pollInterval = null;
@@ -1315,14 +1316,11 @@
                 if (data.success) {
                     progressBar.style.width = '100%';
                     statusMessage.innerHTML = '<span class="status-badge status-success">✓ Restore completed successfully!</span>';
-                    if (data.log) {
-                        logOutput.textContent = data.log;
-                    }
                 } else {
                     progressBar.style.width = '100%';
                     progressBar.style.background = 'var(--danger)';
                     statusMessage.innerHTML = '<span class="status-badge status-error">✗ Restore failed</span>';
-                    logOutput.textContent = data.log || data.message || 'Unknown error occurred.';
+                    logOutput.textContent = data.message || 'Unknown error occurred.';
                 }
             }
         }).catch(err => {
@@ -1351,10 +1349,12 @@
             if (data.backups && data.backups.length > 0) {
                 select.innerHTML = '<option value="">-- Select Backup --</option>';
                 data.backups.forEach(backup => {
-                    // Use full path (file) as value, display_name or filename for label
-                    const displayName = backup.display_name || backup.file;
-                    select.innerHTML += `<option value="${backup.file}">${displayName} (${backup.size}, ${backup.date})</option>`;
-                });
+                    // Use full path (file) as value
+                    const filename = backup.display_name || backup.file;
+                    const timestamp = formatBackupTimestamp(filename);
+                    const size = backup.size || 'Unknown size';
+                    // Format: timestamp (size) - filename
+                    select.innerHTML += `<option value="${backup.file}">${timestamp} (${size}) - ${filename}</option>`;                });
             } else {
                 select.innerHTML = '<option value="">No backups found</option>';
             }
@@ -1492,14 +1492,21 @@
     
     // Format backup timestamp from filename
     function formatBackupTimestamp(filename) {
-        // Example: cpmove-username.2024-01-15_12-30-00.tar.gz
-        const match = filename.match(/(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})/);
+        // Handles formats:
+        // - cpmove-username_2024-01-15_12-30-00.tar.gz (BackBork format)
+        // - cpmove-username.2024-01-15_12-30-00.tar.gz (legacy format)
+        const match = filename.match(/(\d{4}-\d{2}-\d{2})[_\.](\d{2}-\d{2}-\d{2})/);
         if (match) {
             const date = match[1];
             const time = match[2].replace(/-/g, ':');
             return `${date} ${time}`;
         }
-        return filename;
+        // Try just date without time
+        const dateOnly = filename.match(/(\d{4}-\d{2}-\d{2})/);
+        if (dateOnly) {
+            return dateOnly[1];
+        }
+        return 'Unknown';
     }
     
     // Show Delete Backup Modal

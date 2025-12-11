@@ -407,11 +407,21 @@ class BackBorkBackupManager {
             $destType = strtolower($destination['type'] ?? 'local');
             $filePath = ($destType === 'sftp' || $destType === 'ftp') ? $filename : ($backupAccount ? $backupAccount . '/' . $filename : $filename);
             
+            // Extract date from filename (e.g., cpmove-user_2024-01-15_12-30-00.tar.gz)
+            $backupDate = 'Unknown';
+            if (preg_match('/(\d{4}-\d{2}-\d{2})[_\.](\d{2}-\d{2}-\d{2})/', $filename, $dateMatches)) {
+                $date = $dateMatches[1];
+                $time = str_replace('-', ':', $dateMatches[2]);
+                $backupDate = "$date $time";
+            } elseif (preg_match('/(\d{4}-\d{2}-\d{2})/', $filename, $dateMatches)) {
+                $backupDate = $dateMatches[1];
+            }
+            
             $backups[] = [
                 'file' => $filePath,
                 'display_name' => $filename,  // Just filename for display
                 'size' => $this->formatSize($file['size'] ?? 0),
-                'date' => $file['date'] ?? 'Unknown',
+                'date' => $backupDate,
                 'location' => 'remote',
                 'account' => $backupAccount
             ];

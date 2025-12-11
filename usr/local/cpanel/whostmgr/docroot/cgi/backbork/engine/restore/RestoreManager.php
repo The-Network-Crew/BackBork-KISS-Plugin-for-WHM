@@ -81,46 +81,125 @@ class BackBorkRestoreManager {
         // Load user-specific configuration for notifications
         $userConfig = $this->config->getUserConfig($user);
         
-        // Retrieve backup file from destination (downloads if remote)
-        $retrieveResult = $this->retrieval->retrieveBackup($destinationId, $backupFile);
+        // Get destination info for logging
+        $destParser = new BackBorkDestinationsParser();
+        $destination = $destParser->getDestinationById($destinationId);
+        $destName = $destination ? ($destination['name'] ?? $destinationId) : $destinationId;
+        $destType = $destination ? strtolower($destination['type'] ?? 'unknown') : 'unknown';
+        $isRemote = ($destType !== 'local');
         
-        // Check retrieval success
-        if (!$retrieveResult['success']) {
-            // Extract account from filename for logging even on failure
-            $account = $this->extractAccountFromFilename(basename($backupFile));
-            $this->logOperation($user, 'restore', [$account], false, 'Retrieval failed: ' . ($retrieveResult['message'] ?? 'Unknown error'));
-            return $retrieveResult;
+        // Generate restore ID early for logging
+        $restoreId = 'restore_' . time() . '_' . substr(md5($backupFile), 0, 8);
+        $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
+        
+        // Ensure log directory exists
+        if (!is_dir(self::LOG_DIR)) {
+            mkdir(self::LOG_DIR, 0700, true);
         }
-        
-        $localPath = $retrieveResult['local_path'];
-        $filesToCleanup = [$localPath];
         
         // Extract account name from backup filename for logging/notifications
         $account = $this->extractAccountFromFilename(basename($backupFile));
         
+        // Start logging
+        $this->writeLog($logFile, "=== BACKBORK RESTORE OPERATION ===");
+        $this->writeLog($logFile, "Account: {$account}");
+        $this->writeLog($logFile, "Backup file: " . basename($backupFile));
+        $this->writeLog($logFile, "Source: {$destName} ({$destType})");
+        $this->writeLog($logFile, str_repeat('-', 60));
+        
+        // ====================================================================
+        // STEP 1: Retrieve backup file
+        // ====================================================================
+        if ($isRemote) {
+            $this->writeLog($logFile, "Downloading backup from remote destination...");
+            $this->writeLog($logFile, "Remote path: {$backupFile}");
+        } else {
+            $this->writeLog($logFile, "Locating backup file on local storage...");
+        }
+        
+        $retrieveResult = $this->retrieval->retrieveBackup($destinationId, $backupFile);
+        
+        // Check retrieval success
+        if (!$retrieveResult['success']) {
+            $this->writeLog($logFile, "ERROR: Retrieval failed - " . ($retrieveResult['message'] ?? 'Unknown error'));
+            $this->logOperation($user, 'restore', [$account], false, 'Retrieval failed: ' . ($retrieveResult['message'] ?? 'Unknown error'));
+            $retrieveResult['restore_id'] = $restoreId;
+            $retrieveResult['log_file'] = $logFile;
+            return $retrieveResult;
+        }
+        
+        $localPath = $retrieveResult['local_path'];
+        $filesToCleanup = [];
+        
+        // Only add to cleanup if it's a temp file (remote downloads)
+        if ($isRemote && strpos($localPath, '/home/backbork_tmp') === 0) {
+            $filesToCleanup[] = $localPath;
+        }
+        
+        // Log download success
+        $fileSize = $this->formatSize($retrieveResult['size'] ?? filesize($localPath));
+        if ($isRemote) {
+            $this->writeLog($logFile, "Download complete! Size: {$fileSize}");
+            $this->writeLog($logFile, "Local path: {$localPath}");
+        } else {
+            $this->writeLog($logFile, "Backup file located: {$localPath} ({$fileSize})");
+        }
+        $this->writeLog($logFile, str_repeat('-', 60));
+        
+        // ====================================================================
+        // STEP 2: Verify backup file
+        // ====================================================================
+        $this->writeLog($logFile, "Verifying backup file integrity...");
+        
         // Verify backup file integrity and format
         $verification = $this->retrieval->verifyBackupFile($localPath);
         if (!$verification['valid']) {
+            $this->writeLog($logFile, "ERROR: Invalid backup file - " . $verification['message']);
+            $this->cleanupFilesWithLog($filesToCleanup, $logFile);
             $this->logOperation($user, 'restore', [$account], false, 'Invalid backup file: ' . $verification['message']);
-            return ['success' => false, 'message' => 'Invalid backup file: ' . $verification['message']];
+            return ['success' => false, 'message' => 'Invalid backup file: ' . $verification['message'], 'restore_id' => $restoreId, 'log_file' => $logFile];
         }
         
+        $this->writeLog($logFile, "Backup file verified successfully.");
+        $this->writeLog($logFile, str_repeat('-', 60));
+        
+        // ====================================================================
+        // STEP 3: Check for accompanying DB backup
+        // ====================================================================
         // Check for accompanying DB backup file (from mariadb-backup/mysqlbackup)
         $dbBackupFile = $this->findDbBackupFile($backupFile, $destinationId);
         $dbLocalPath = null;
         
         if ($dbBackupFile) {
+            $this->writeLog($logFile, "Found accompanying database backup: " . basename($dbBackupFile));
             BackBorkConfig::debugLog("Found DB backup file: {$dbBackupFile}");
+            
+            if ($isRemote) {
+                $this->writeLog($logFile, "Downloading database backup...");
+            }
+            
             $dbRetrieveResult = $this->retrieval->retrieveBackup($destinationId, $dbBackupFile);
             if ($dbRetrieveResult['success']) {
                 $dbLocalPath = $dbRetrieveResult['local_path'];
-                $filesToCleanup[] = $dbLocalPath;
+                if ($isRemote && strpos($dbLocalPath, '/home/backbork_tmp') === 0) {
+                    $filesToCleanup[] = $dbLocalPath;
+                }
+                $dbSize = $this->formatSize($dbRetrieveResult['size'] ?? filesize($dbLocalPath));
+                $this->writeLog($logFile, "Database backup ready ({$dbSize})");
+            } else {
+                $this->writeLog($logFile, "Warning: Could not retrieve database backup - " . ($dbRetrieveResult['message'] ?? 'Unknown error'));
             }
+            $this->writeLog($logFile, str_repeat('-', 60));
         }
+        
+        // ====================================================================
+        // STEP 4: Send start notification
+        // ====================================================================
         
         // Send start notification if user has enabled it (new key with legacy fallback)
         $notifyStart = !empty($userConfig['notify_restore_start']) || (!isset($userConfig['notify_restore_start']) && !empty($userConfig['notify_start']));
         if ($notifyStart) {
+            $this->writeLog($logFile, "Sending restore start notification...");
             $this->notify->sendNotification(
                 'restore_start',
                 [
@@ -135,21 +214,30 @@ class BackBorkRestoreManager {
         }
         
         // ====================================================================
-        // STEP 1: Restore main backup (includes schema if hot DB was used)
+        // STEP 5: Restore main backup (includes schema if hot DB was used)
         // ====================================================================
-        $result = $this->executeRestore($localPath, $options);
+        $this->writeLog($logFile, "Restoring account using restorepkg...");
+        $this->writeLog($logFile, "Source: " . basename($localPath));
+        
+        $result = $this->executeRestore($localPath, $options, $logFile);
         
         if (!$result['success']) {
-            // Clean up temp files on failure
-            $this->cleanupFiles($filesToCleanup);
+            $this->writeLog($logFile, "ERROR: Restore failed - " . $result['message']);
+            $this->cleanupFilesWithLog($filesToCleanup, $logFile);
             $this->logOperation($user, 'restore', [$account], false, $result['message']);
+            $result['restore_id'] = $restoreId;
+            $result['log_file'] = $logFile;
             return $result;
         }
         
+        $this->writeLog($logFile, "Account restore completed successfully.");
+        $this->writeLog($logFile, str_repeat('-', 60));
+        
         // ====================================================================
-        // STEP 2: Restore DB data if hot backup file exists
+        // STEP 6: Restore DB data if hot backup file exists
         // ====================================================================
         if ($dbLocalPath && file_exists($dbLocalPath)) {
+            $this->writeLog($logFile, "Restoring database data from hot backup...");
             BackBorkConfig::debugLog("Restoring database data from: {$dbLocalPath}");
             
             $sqlRestore = new BackBorkSQLRestore();
@@ -157,27 +245,34 @@ class BackBorkRestoreManager {
             
             if (!$dbResult['success']) {
                 // DB restore failed but main restore succeeded - partial success
+                $this->writeLog($logFile, "WARNING: Database data restore failed - " . ($dbResult['message'] ?? 'Unknown'));
                 $result['message'] .= ' (Warning: DB data restore failed: ' . ($dbResult['message'] ?? 'Unknown') . ')';
                 $result['db_restore_failed'] = true;
             } else {
+                $this->writeLog($logFile, "Database data restored successfully.");
                 $result['message'] .= ' (DB data restored)';
             }
+            $this->writeLog($logFile, str_repeat('-', 60));
         }
         
         // ====================================================================
-        // STEP 3: Cleanup temp files
+        // STEP 7: Cleanup temp files
         // ====================================================================
-        $this->cleanupFiles($filesToCleanup);
+        $this->cleanupFilesWithLog($filesToCleanup, $logFile);
         
         // Log the operation to centralized log
         $this->logOperation($user, 'restore', [$account], $result['success'], $result['message']);
         
+        // ====================================================================
+        // STEP 8: Send completion notification
+        // ====================================================================
         // Check notification preferences (new keys with legacy fallback)
         $notifySuccess = !empty($userConfig['notify_restore_success']) || (!isset($userConfig['notify_restore_success']) && !empty($userConfig['notify_success']));
         $notifyFailure = !empty($userConfig['notify_restore_failure']) || (!isset($userConfig['notify_restore_failure']) && !empty($userConfig['notify_failure']));
         
         // Send success notification if restore succeeded and notifications enabled
         if ($result['success'] && $notifySuccess) {
+            $this->writeLog($logFile, "Sending restore success notification...");
             $this->notify->sendNotification(
                 'restore_success',
                 [
@@ -190,6 +285,7 @@ class BackBorkRestoreManager {
             );
         // Send failure notification if restore failed and notifications enabled
         } elseif (!$result['success'] && $notifyFailure) {
+            $this->writeLog($logFile, "Sending restore failure notification...");
             $this->notify->sendNotification(
                 'restore_failure',
                 [
@@ -203,6 +299,13 @@ class BackBorkRestoreManager {
             );
         }
         
+        // Final completion message
+        $this->writeLog($logFile, str_repeat('=', 60));
+        $this->writeLog($logFile, "RESTORE COMPLETED SUCCESSFULLY");
+        $this->writeLog($logFile, str_repeat('=', 60));
+        
+        $result['restore_id'] = $restoreId;
+        $result['log_file'] = $logFile;
         return $result;
     }
     
@@ -260,19 +363,45 @@ class BackBorkRestoreManager {
     }
     
     /**
+     * Clean up temporary files with logging.
+     * 
+     * @param array $files List of file paths to delete
+     * @param string $logFile Path to log file
+     */
+    private function cleanupFilesWithLog($files, $logFile) {
+        if (empty($files)) {
+            return;
+        }
+        
+        $this->writeLog($logFile, "Cleaning up temporary files...");
+        
+        foreach ($files as $file) {
+            if ($file && strpos($file, '/home/backbork_tmp') === 0 && file_exists($file)) {
+                unlink($file);
+                $this->writeLog($logFile, "Removed temporary file: " . basename($file));
+                BackBorkConfig::debugLog("Cleaned up temp file: {$file}");
+            }
+        }
+        
+        $this->writeLog($logFile, "Cleanup complete.");
+        $this->writeLog($logFile, str_repeat('-', 60));
+    }
+    
+    /**
      * Execute restore using appropriate WHM tool.
      * Automatically selects backup_restore_manager or restorepkg based on WHM version.
      * 
      * @param string $backupPath Absolute path to backup file
      * @param array $options Restore options (force, newuser, ip)
+     * @param string|null $logFile Path to existing log file (optional)
      * @return array Result with success status and details
      */
-    private function executeRestore($backupPath, $options = []) {
+    private function executeRestore($backupPath, $options = [], $logFile = null) {
         // Always use restorepkg for direct file restoration
         // backup_restore_manager is queue-based and designed for restore points,
         // not direct file restoration. restorepkg supports --disable=Module for
         // granular control and is the documented approach for file-based restores.
-        return $this->restoreViaRestorepkg($backupPath, $options);
+        return $this->restoreViaRestorepkg($backupPath, $options, $logFile);
     }
     
     /**
@@ -285,9 +414,10 @@ class BackBorkRestoreManager {
      * 
      * @param string $backupPath Absolute path to backup file
      * @param array $options Restore options (force, newuser, homedir, mysql, mail, etc.)
+     * @param string|null $existingLogFile Path to existing log file to append to
      * @return array Result with success status and details
      */
-    private function restoreViaRestorepkg($backupPath, $options = []) {
+    private function restoreViaRestorepkg($backupPath, $options = [], $existingLogFile = null) {
         // Build restorepkg command
         $command = self::RESTOREPKG_BIN;
         
@@ -340,21 +470,32 @@ class BackBorkRestoreManager {
         // Add backup file path
         $command .= ' ' . escapeshellarg($backupPath);
         
-        // Generate unique restore ID for log tracking
-        $restoreId = 'restore_' . time() . '_' . substr(md5($backupPath), 0, 8);
-        $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
+        // Use existing log file or generate new one
+        if ($existingLogFile) {
+            $logFile = $existingLogFile;
+            $restoreId = basename($logFile, '.log');
+        } else {
+            // Generate unique restore ID for log tracking
+            $restoreId = 'restore_' . time() . '_' . substr(md5($backupPath), 0, 8);
+            $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
+            
+            // Write initial status to log (only if creating new log)
+            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Starting restore...\n");
+            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Backup file: " . basename($backupPath) . "\n", FILE_APPEND);
+            if (!empty($disableModules)) {
+                file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Disabled modules: " . implode(', ', $disableModules) . "\n", FILE_APPEND);
+            }
+            file_put_contents($logFile, str_repeat('-', 60) . "\n", FILE_APPEND);
+        }
         
         // Log the command being executed (sanitized)
         BackBorkConfig::debugLog("Executing restore: restorepkg " . basename($backupPath) . 
             (!empty($disableModules) ? " --disable=" . implode(',', $disableModules) : ''));
         
-        // Write initial status to log
-        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Starting restore...\n");
-        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Backup file: " . basename($backupPath) . "\n", FILE_APPEND);
-        if (!empty($disableModules)) {
-            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Disabled modules: " . implode(', ', $disableModules) . "\n", FILE_APPEND);
-        }
-        file_put_contents($logFile, str_repeat('-', 60) . "\n", FILE_APPEND);
+        // Log disabled modules if any (append to existing log)
+        if (!empty($disableModules) && $existingLogFile) {
+            $this->writeLog($logFile, "Disabled modules: " . implode(', ', $disableModules));
+        };
         
         // Execute command with real-time output capture using proc_open
         $descriptors = [
@@ -442,7 +583,7 @@ class BackBorkRestoreManager {
         // Write final status
         file_put_contents($logFile, str_repeat('-', 60) . "\n", FILE_APPEND);
         if ($returnCode !== 0) {
-            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] RESTORE FAILED (exit code: {$returnCode})\n", FILE_APPEND);
+            file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] restorepkg FAILED (exit code: {$returnCode})\n", FILE_APPEND);
             return [
                 'success' => false,
                 'message' => 'Restore failed (exit code ' . $returnCode . ')',
@@ -454,7 +595,7 @@ class BackBorkRestoreManager {
             ];
         }
         
-        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] RESTORE COMPLETED SUCCESSFULLY\n", FILE_APPEND);
+        file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] restorepkg completed successfully.\n", FILE_APPEND);
         
         return [
             'success' => true,
@@ -599,6 +740,17 @@ class BackBorkRestoreManager {
             // Log event through centralized logging
             BackBorkLog::logEvent($user, $type === 'restore' ? 'restore' : $type, $accounts, $success, $message, $requestor);
         }
+    }
+    
+    /**
+     * Write a timestamped message to the restore log file.
+     * 
+     * @param string $logFile Path to the log file
+     * @param string $message Message to log
+     */
+    private function writeLog($logFile, $message) {
+        $timestamp = date('Y-m-d H:i:s');
+        file_put_contents($logFile, "[{$timestamp}] {$message}\n", FILE_APPEND);
     }
     
     /**
