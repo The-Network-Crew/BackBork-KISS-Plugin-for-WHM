@@ -187,6 +187,10 @@ class BackBorkQueueProcessor {
                     $failed++;
                     $failedAccounts = array_merge($failedAccounts, $itemAccounts);
                 }
+                
+                // Heartbeat: touch lock file to show we're still alive
+                // Keeps lock mtime fresh for monitoring (PID check is primary)
+                $this->touchLock();
             }
             
             $this->releaseLock();
@@ -554,8 +558,10 @@ class BackBorkQueueProcessor {
     /**
      * Acquire exclusive processing lock
      * 
-     * Prevents concurrent queue processing. Handles stale locks
-     * (older than 1 hour) and orphaned locks (process no longer running).
+     * Prevents concurrent queue processing. PID check takes priority
+     * over stale timeout — a running process is always valid regardless
+     * of lock age. Stale timeout (1 hour) only applies when the process
+     * is dead but PID check somehow fails.
      * 
      * @return bool True if lock acquired, false if already locked
      */
@@ -568,19 +574,26 @@ class BackBorkQueueProcessor {
             
             BackBorkConfig::debugLog('acquireLock: Lock file exists, age=' . $lockAge . 's, pid=' . $pid);
             
-            // Remove stale locks (older than 1 hour = likely hung process)
-            if ($lockAge > 3600) {
-                BackBorkConfig::debugLog('acquireLock: Removing stale lock (age > 1 hour)');
-                unlink(self::LOCK_FILE);
+            // PRIORITY 1: If process is alive, lock is ALWAYS valid (even if >1 hour old)
+            // This protects long-running backup jobs on large servers
+            if ($pid > 0 && $this->isProcessRunning($pid)) {
+                BackBorkConfig::debugLog('acquireLock: Process ' . $pid . ' still running, lock valid');
+                return false;
             }
-            // Check if the locking process is still running
-            elseif ($pid > 0 && !$this->isProcessRunning($pid)) {
+            
+            // PRIORITY 2: Process is dead - remove orphaned lock
+            if ($pid > 0) {
                 BackBorkConfig::debugLog('acquireLock: Removing orphaned lock (pid ' . $pid . ' not running)');
                 unlink(self::LOCK_FILE);
             }
+            // FALLBACK: No valid PID but lock exists - use stale timeout
+            elseif ($lockAge > 3600) {
+                BackBorkConfig::debugLog('acquireLock: Removing stale lock (no PID, age > 1 hour)');
+                unlink(self::LOCK_FILE);
+            }
             else {
-                // Lock is valid - another process is running
-                BackBorkConfig::debugLog('acquireLock: Lock is valid, cannot acquire');
+                // Lock exists, no PID, but not stale yet - be cautious
+                BackBorkConfig::debugLog('acquireLock: Lock exists without valid PID, waiting for stale timeout');
                 return false;
             }
         }
@@ -631,9 +644,24 @@ class BackBorkQueueProcessor {
     }
     
     /**
+     * Touch the lock file to update its mtime (heartbeat)
+     * 
+     * Called during long-running operations to show the process is
+     * still alive. Keeps the lock "fresh" for monitoring purposes,
+     * though PID check is the primary validity mechanism.
+     */
+    private function touchLock() {
+        if (file_exists(self::LOCK_FILE)) {
+            touch(self::LOCK_FILE);
+        }
+    }
+    
+    /**
      * Check if the queue processor is currently running
      * 
-     * Public method for status checking. Also cleans up stale/orphaned locks.
+     * Public method for status checking. PID check takes priority over
+     * stale timeout — a running process is always valid. Also cleans up
+     * orphaned locks from dead processes.
      * 
      * @return bool True if processor is running
      */
@@ -649,23 +677,30 @@ class BackBorkQueueProcessor {
         
         BackBorkConfig::debugLog('isRunning: Lock file exists, age=' . $lockAge . 's, pid=' . $pid);
         
-        // Check for stale lock
-        if ($lockAge > 3600) {
-            BackBorkConfig::debugLog('isRunning: Lock is stale (age > 1 hour), cleaning up');
-            unlink(self::LOCK_FILE);
-            return false;
-        }
-        
-        // Check if process is actually running
+        // PRIORITY 1: If process is alive, it's running (regardless of lock age)
+        // This protects long-running backup jobs on large servers
         if ($pid > 0 && $this->isProcessRunning($pid)) {
             BackBorkConfig::debugLog('isRunning: Process ' . $pid . ' is still running');
             return true;
         }
         
         // Process not running - clean up orphaned lock
-        BackBorkConfig::debugLog('isRunning: Process ' . $pid . ' not running, cleaning up orphaned lock');
-        unlink(self::LOCK_FILE);
-        return false;
+        if ($pid > 0) {
+            BackBorkConfig::debugLog('isRunning: Process ' . $pid . ' not running, cleaning up orphaned lock');
+            unlink(self::LOCK_FILE);
+            return false;
+        }
+        
+        // No valid PID - use stale timeout as fallback
+        if ($lockAge > 3600) {
+            BackBorkConfig::debugLog('isRunning: Lock is stale (no PID, age > 1 hour), cleaning up');
+            unlink(self::LOCK_FILE);
+            return false;
+        }
+        
+        // Lock exists without PID but not stale - assume running (be safe)
+        BackBorkConfig::debugLog('isRunning: Lock exists without PID, assuming running until stale');
+        return true;
     }
     
     // ========================================================================
