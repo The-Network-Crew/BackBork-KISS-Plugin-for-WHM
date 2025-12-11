@@ -56,21 +56,40 @@ if (!class_exists('BackBorkBootstrap')) {
     require_once(__DIR__ . '/../app/Bootstrap.php');
 }
 
-// Initialize application and verify user has access
-if (!BackBorkBootstrap::init()) {
-    // Access denied - return JSON error and log the attempt
-    header('Content-Type: application/json');
+// ============================================================================
+// CLI MODE SUPPORT
+// Enables automation via Ansible, scripts, or direct command line access
+// Usage: php router.php --action=get_config [--data='{"key":"value"}']
+// Security: Requires root shell access - no additional risk
+// ============================================================================
+
+$isCLI = (php_sapi_name() === 'cli');
+$cliAction = null;
+$cliData = null;
+
+if ($isCLI) {
+    // Parse CLI arguments: --action=xxx --data='json'
+    $args = getopt('', ['action:', 'data:']);
+    $cliAction = $args['action'] ?? null;
+    $cliData = isset($args['data']) ? json_decode($args['data'], true) : null;
     
-    // Log failed access attempt for security auditing
-    if (class_exists('BackBorkLog')) {
-        $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
-            ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
-            : (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown');
-        BackBorkLog::logEvent('unknown', 'api_init_denied', [], false, 'API init failed (ACL or auth)', $requestor);
+    // Initialize for CLI (bypasses WHM auth - you're already root)
+    BackBorkBootstrap::initCLI();
+} else {
+    // Web request - normal WHM authentication
+    if (!BackBorkBootstrap::init()) {
+        header('Content-Type: application/json');
+        
+        if (class_exists('BackBorkLog')) {
+            $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
+                ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
+                : (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'unknown');
+            BackBorkLog::logEvent('unknown', 'api_init_denied', [], false, 'API init failed (ACL or auth)', $requestor);
+        }
+        
+        echo json_encode(['success' => false, 'message' => 'Access denied']);
+        exit;
     }
-    
-    echo json_encode(['success' => false, 'message' => 'Access denied']);
-    exit;
 }
 
 // Set JSON content type for all API responses
@@ -98,8 +117,27 @@ $requestor = BackBorkLog::getRequestor();
 // ROUTE REQUEST TO HANDLER
 // ============================================================================
 
-// Get requested action from POST or GET parameters
-$action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
+// Get requested action (CLI args take precedence, then POST, then GET)
+if ($isCLI && $cliAction) {
+    $action = $cliAction;
+} else {
+    $action = isset($_POST['action']) ? $_POST['action'] : (isset($_GET['action']) ? $_GET['action'] : '');
+}
+
+/**
+ * Get JSON request data from either CLI --data argument or HTTP body
+ * @return array|null Decoded JSON data
+ */
+function backbork_get_request_data() {
+    global $isCLI, $cliData;
+    if ($isCLI) {
+        return $cliData;
+    }
+    return json_decode(file_get_contents('php://input'), true);
+}
+
+// For backwards compatibility, also store in a variable that can be used directly
+$requestData = backbork_get_request_data();
 
 // Route to appropriate handler based on action
 switch ($action) {
@@ -165,7 +203,7 @@ switch ($action) {
             break;
         }
         $config = new BackBorkConfig();
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $result = $config->saveGlobalConfig($data, $currentUser);
         echo json_encode($result);
         break;
@@ -180,7 +218,7 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Access denied']);
             break;
         }
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $locked = isset($data['locked']) ? (bool)$data['locked'] : false;
         $config = new BackBorkConfig();
         $result = $config->setSchedulesLocked($locked, $currentUser);
@@ -193,7 +231,7 @@ switch ($action) {
      */
     case 'save_config':
         $config = new BackBorkConfig();
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         
         // Root-only: handle batched global settings (single save, single log entry)
         if ($isRoot && isset($data['_global_settings']) && is_array($data['_global_settings'])) {
@@ -235,7 +273,7 @@ switch ($action) {
      * Runs backup synchronously and returns result
      */
     case 'create_backup':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         
@@ -259,7 +297,7 @@ switch ($action) {
      * Job will be processed by cron handler
      */
     case 'queue_backup':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         $schedule = isset($data['schedule']) ? $data['schedule'] : 'daily';
@@ -292,7 +330,7 @@ switch ($action) {
      * Supports "all accounts" mode for dynamic account resolution
      */
     case 'create_schedule':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         $schedule = isset($data['schedule']) ? $data['schedule'] : 'daily';
@@ -335,7 +373,7 @@ switch ($action) {
      * Users can only delete their own schedules unless root
      */
     case 'delete_schedule':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $jobId = isset($data['job_id']) ? $data['job_id'] : '';
         
         // Security: Check if schedules are locked for resellers
@@ -369,7 +407,7 @@ switch ($action) {
      * Users can only remove their own jobs unless root
      */
     case 'remove_from_queue':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $jobId = isset($data['job_id']) ? $data['job_id'] : '';
         
         $queue = new BackBorkQueue();
@@ -456,7 +494,7 @@ switch ($action) {
      * Restore account from backup
      */
     case 'restore_backup':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $backupFile = isset($data['backup_file']) ? $data['backup_file'] : '';
         $account = isset($data['account']) ? $data['account'] : '';
         $restoreOptions = isset($data['options']) ? $data['options'] : [];
@@ -479,7 +517,7 @@ switch ($action) {
      * Supports both Local and remote (SFTP/FTP) destinations
      */
     case 'delete_backup':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $destinationId = isset($data['destination']) ? $data['destination'] : '';
         // Accept 'path' (full), 'filename', or 'backup_file'
         $backupPath = isset($data['path']) ? $data['path'] : '';
@@ -563,7 +601,7 @@ switch ($action) {
      * Supports both Local and remote (SFTP/FTP) destinations
      */
     case 'get_backup_accounts':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $destinationId = isset($data['destination']) ? $data['destination'] : 
                         (isset($_GET['destination']) ? $_GET['destination'] : '');
         
@@ -640,7 +678,7 @@ switch ($action) {
      * Supports both Local and remote (SFTP/FTP) destinations
      */
     case 'list_backups':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $destinationId = isset($data['destination']) ? $data['destination'] : 
                         (isset($_GET['destination']) ? $_GET['destination'] : '');
         $account = isset($data['account']) ? $data['account'] : 
@@ -760,7 +798,7 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Access denied']);
             break;
         }
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $destId = isset($data['destination_id']) ? $data['destination_id'] : '';
         $rootOnly = isset($data['root_only']) ? (bool)$data['root_only'] : false;
         
@@ -787,7 +825,7 @@ switch ($action) {
      * Send a test notification (email or Slack)
      */
     case 'test_notification':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = backbork_get_request_data();
         $type = isset($data['type']) ? $data['type'] : 'email';
         
         $config = new BackBorkConfig();

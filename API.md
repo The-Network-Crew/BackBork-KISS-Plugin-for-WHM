@@ -99,6 +99,77 @@ Or on error:
 
 ---
 
+## 🖥️ CLI Access
+
+The API can also be accessed directly from the command line, enabling automation via scripts, Ansible, or other orchestration tools.
+
+### CLI vs HTTP
+
+| Method | Authentication | Use Case |
+|--------|----------------|----------|
+| **HTTP** | WHM API token | Remote access, web UI |
+| **CLI** | Root shell access | Local automation, Ansible |
+
+### CLI Usage
+
+```bash
+php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/api/router.php \
+  --action=ACTION_NAME \
+  --data='JSON_PAYLOAD'
+```
+
+### CLI Examples
+
+**GET-style actions (no data required):**
+
+```bash
+# List accounts
+php router.php --action=get_accounts
+
+# Get configuration
+php router.php --action=get_config
+
+# List destinations
+php router.php --action=get_destinations
+
+# Check cron status
+php router.php --action=check_cron
+
+# Get queue status
+php router.php --action=get_queue
+```
+
+**POST-style actions (with JSON data):**
+
+```bash
+# Save configuration (partial updates supported)
+php router.php --action=save_config \
+  --data='{"notify_email":"admin@example.com"}'
+
+# Save global config (partial updates supported)
+php router.php --action=save_global_config \
+  --data='{"schedules_locked":true}'
+
+# Create a schedule
+php router.php --action=create_schedule \
+  --data='{"name":"Daily SFTP","all_accounts":true,"destination":"SFTP_Server","schedule":"daily","retention":30}'
+
+# Queue an immediate backup
+php router.php --action=queue_backup \
+  --data='{"accounts":["user1","user2"],"destination":"Local","schedule":"immediate"}'
+
+# Delete a schedule
+php router.php --action=delete_schedule \
+  --data='{"job_id":"schedule_abc123"}'
+```
+
+> [!NOTE]
+> CLI mode bypasses WHM authentication since you must already have root shell access. This is intentional for automation use cases.
+
+See [ORCH.md](ORCH.md) for complete Ansible playbook examples.
+
+---
+
 ## 📋 Endpoints Reference
 
 ### Account Management
