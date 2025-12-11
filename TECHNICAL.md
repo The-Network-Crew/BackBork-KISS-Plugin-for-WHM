@@ -114,15 +114,40 @@ Creates a complete backup of an account.
 | `--skiplinkednodes` | Linked node data |
 | `--skipintegrationlinks` | Third-party integrations |
 
-**Output:** `cpmove-<username>.tar.gz`
+**Output:** `cpmove-<username>.tar.gz` (BackBork renames to official format: `backup-MM.DD.YYYY_HH-MM-SS_<username>.tar.gz`)
 
 ---
 
 ### 📤 BackBork Perl Transport Helper
 
-BackBork uses a custom Perl helper that interfaces directly with `Cpanel::Transport::Files` for all remote operations. This provides better error handling and control than cPanel's CLI wrapper.
+BackBork uses a custom Perl helper that wraps cPanel's internal `Cpanel::Transport::Files` module for all remote SFTP/FTP operations. This provides:
+
+- **Direct access** to cPanel's transport layer (same code WHM uses internally)
+- **Proper error handling** with JSON output for PHP consumption
+- **Full control** over upload, download, list, delete, and mkdir operations
+- **Automatic configuration** — reads transport settings from WHM's backup destination config
 
 **Location:** `engine/transport/cpanel_transport.pl`
+
+#### How It Works
+
+```perl
+# 1. Load cPanel's transport modules
+use Cpanel::Backup::Transport ();          # Destination config reader
+use Cpanel::Transport::Files ();           # Transport factory
+use Cpanel::Transport::Files::SFTP ();     # SFTP implementation
+use Cpanel::Transport::Files::FTP ();      # FTP implementation
+
+# 2. Get destination config by ID
+my $destinations = Cpanel::Backup::Transport->get_enabled_destinations();
+my $config = $destinations->{$transport_id};
+
+# 3. Instantiate transport with config
+my $transport = Cpanel::Transport::Files->new($config->{type}, $config);
+
+# 4. Call methods: put(), get(), ls(), delete(), mkdir()
+$transport->put($local_path, $remote_path);
+```
 
 #### ⬆️ Upload (Backup → Remote)
 
@@ -310,7 +335,7 @@ BackBork supports hot database backups using mariadb-backup or mysqlbackup.
 |------|--------|
 | 1️⃣ | pkgacct runs with `--dbbackup=schema` (schema only, no data) |
 | 2️⃣ | mariadb-backup/mysqlbackup runs to capture DB data |
-| 3️⃣ | Both files uploaded: `cpmove-*` + `db-backup-*` |
+| 3️⃣ | Both files uploaded: `backup-*` + `db-backup-*` |
 | 4️⃣ | On restore: main backup restored first (includes schema) |
 | 5️⃣ | DB data restored from hot backup file |
 | 6️⃣ | Both temp files cleaned up |
@@ -553,11 +578,14 @@ The UI polls this file in real-time using `GET ?action=get_restore_log&restore_i
 > [!WARNING]
 > These are known limitations of WHM's underlying tools, not BackBork bugs. We've documented workarounds below.
 
-### 1️⃣ No Auto Folder Creation
+### 1️⃣ Backup File Organisation
 
-| Problem | Can't auto-create `daily/2024-01-15/` folders |
-|---------|-----------------------------------------------|
-| **Workaround** | Timestamps in filenames: `cpmove-user_2024-01-15_14-30-00.tar.gz` |
+| Solution | Account-based folders with timestamped filenames |
+|----------|--------------------------------------------------|
+| **Format** | `{account}/backup-MM.DD.YYYY_HH-MM-SS_{account}.tar.gz` |
+| **Example** | `myuser/backup-12.12.2025_09-30-00_myuser.tar.gz` |
+
+> This uses cPanel's official backup filename format, ensuring compatibility with `restorepkg` and other WHM tools.
 
 ### 3️⃣ CLI Restore Defaults
 

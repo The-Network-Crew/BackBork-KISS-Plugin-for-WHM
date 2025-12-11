@@ -354,17 +354,17 @@ function sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $ge
     // EMAIL NOTIFICATION
     // ========================================================================
     if (!empty($userConfig['notify_email'])) {
-        $subject = "{$statusEmoji} [BackBork] Daily Summary for {$hostname} - {$date}";
+        $subject = "{$statusEmoji} [BackBork KISS] Daily Report for {$hostname} - {$date}";
         
-        $body = "BackBork Daily Summary\n";
-        $body .= "══════════════════════════\n\n";
+        $body = "BackBork KISS - Daily Report\n";
+        $body .= "==============================\n\n";
         $body .= "Server: {$hostname}\n";
         $body .= "Date: {$date}\n";
         $body .= "Status: {$statusText}\n";
         $body .= "Generated: {$generatedAt}\n\n";
         
-        $body .= "📊 Activity Summary (Last 24 Hours)\n";
-        $body .= "──────────────────────────\n";
+        $body .= "Activity Summary (Last 24 Hours)\n";
+        $body .= "------------------------------\n";
         $body .= "Backups Completed:  {$stats['backup_successes']}\n";
         $body .= "Backups Failed:     {$stats['backup_failures']}\n";
         $body .= "Restores Completed: {$stats['restore_successes']}\n";
@@ -374,30 +374,30 @@ function sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $ge
         $body .= "Total Events:       {$stats['total_events']}\n\n";
         
         // Queue status
-        $body .= "📋 Current Queue Status\n";
-        $body .= "──────────────────────────\n";
+        $body .= "Current Queue Status\n";
+        $body .= "------------------------------\n";
         $body .= "Pending Jobs:    {$stats['queue_pending']}\n";
         $body .= "Completed Jobs:  {$stats['queue_completed']}\n";
         $body .= "Failed Jobs:     {$stats['queue_failed']}\n\n";
         
         // Recent errors (if any)
         if (!empty($stats['recent_errors'])) {
-            $body .= "❌ Recent Errors\n";
-            $body .= "──────────────────────────\n";
+            $body .= "Recent Errors\n";
+            $body .= "------------------------------\n";
             foreach (array_slice($stats['recent_errors'], 0, 5) as $error) {
-                $body .= "• [{$error['timestamp']}] {$error['type']}: {$error['message']}\n";
+                $body .= "* [{$error['timestamp']}] {$error['type']}: {$error['message']}\n";
             }
             $body .= "\n";
         }
         
-        $body .= "══════════════════════════\n";
+        $body .= "==============================\n";
         $body .= "BackBork KISS v" . BACKBORK_VERSION . " | Open-source Disaster Recovery\n";
         
         $mailResult = mail($userConfig['notify_email'], $subject, $body, "From: backbork@{$hostname}");
         if ($mailResult) {
-            BackBorkLog::logEvent($username, 'daily_summary', ['email'], true, 'Daily summary email sent to ' . $userConfig['notify_email']);
+            BackBorkLog::logEvent($username, 'daily_summary', ['email'], true, 'Daily report email sent to ' . $userConfig['notify_email']);
         } else {
-            BackBorkLog::logEvent($username, 'daily_summary', ['email'], false, 'Daily summary email failed to ' . $userConfig['notify_email']);
+            BackBorkLog::logEvent($username, 'daily_summary', ['email'], false, 'Daily report email failed to ' . $userConfig['notify_email']);
         }
     }
     
@@ -406,13 +406,13 @@ function sendSummaryToUser($username, $userConfig, $stats, $hostname, $date, $ge
     // ========================================================================
     if (!empty($userConfig['slack_webhook'])) {
         $slackPayload = [
-            'text' => "{$statusEmoji} BackBork Daily Summary for {$hostname}",
+            'text' => "{$statusEmoji} BackBork KISS Daily Report for {$hostname}",
             'blocks' => [
                 [
                     'type' => 'header',
                     'text' => [
                         'type' => 'plain_text',
-                        'text' => "{$statusEmoji} Daily Summary - {$date}",
+                        'text' => "{$statusEmoji} Daily Report - {$date}",
                         'emoji' => true
                     ]
                 ],

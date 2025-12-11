@@ -144,7 +144,7 @@ class BackBorkDestinationsValidator {
             return new BackBorkTransportLocal();
         }
         
-        // SFTP and FTP use WHM's native cpbackup_transport
+        // SFTP and FTP use BackBork's Perl helper wrapping Cpanel::Transport::Files
         return new BackBorkTransportNative();
     }
     

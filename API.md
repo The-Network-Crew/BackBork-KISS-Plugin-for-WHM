@@ -442,7 +442,7 @@ Initiates a restore operation with real-time progress logging.
 ```json
 {
   "account": "someuser",
-  "backup_file": "cpmove-someuser_2024-01-15_02-00-00.tar.gz",
+  "backup_file": "backup-01.15.2024_02-00-00_someuser.tar.gz",
   "destination": "SFTP_BackupServer",
   "options": {
     "mysql": true,
@@ -536,13 +536,13 @@ Lists available backups stored locally for an account.
   "success": true,
   "backups": [
     {
-      "file": "cpmove-someuser_2024-01-15_02-00-00.tar.gz",
+      "file": "backup-01.15.2024_02-00-00_someuser.tar.gz",
       "date": "2024-01-15T02:00:00Z",
       "size": 1073741824,
       "destination": "SFTP_BackupServer"
     },
     {
-      "file": "cpmove-someuser_2024-01-14_02-00-00.tar.gz",
+      "file": "backup-01.14.2024_02-00-00_someuser.tar.gz",
       "date": "2024-01-14T02:00:00Z",
       "size": 1048576000,
       "destination": "SFTP_BackupServer"
@@ -566,7 +566,7 @@ Lists available backups stored on a remote destination. You can optionally filte
   "success": true,
   "backups": [
     {
-      "file": "cpmove-someuser_20250101_120000.tar.gz",
+      "file": "backup-01.01.2025_12-00-00_someuser.tar.gz",
       "size": "1.2 GB",
       "date": "2025-01-01T12:00:00Z",
       "location": "remote"
@@ -614,12 +614,12 @@ Lists backup files for a specific account at a destination.
   "success": true,
   "backups": [
     {
-      "file": "cpmove-someuser_2024-01-14_02-00-00.tar.gz",
+      "file": "backup-01.14.2024_02-00-00_someuser.tar.gz",
       "size": 1048576000,
       "modified": 1705197600
     },
     {
-      "file": "cpmove-someuser_2024-01-15_02-00-00.tar.gz",
+      "file": "backup-01.15.2024_02-00-00_someuser.tar.gz",
       "size": 1073741824,
       "modified": 1705284000
     }
@@ -639,7 +639,7 @@ Deletes a specific backup file from a destination.
 {
   "destination": "local",
   "account": "someuser",
-  "filename": "cpmove-someuser_2024-01-14_02-00-00.tar.gz"
+  "filename": "backup-01.14.2024_02-00-00_someuser.tar.gz"
 }
 ```
 

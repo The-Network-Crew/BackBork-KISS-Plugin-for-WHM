@@ -181,8 +181,8 @@ class BackBorkNotify {
                 $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
                 $requestor = $data['requestor'] ?? 'N/A';
                 return [
-                    'subject' => "[BackBork] Backup Started - {$hostname}",
-                    'body' => "Backup job started.\n\n" .
+                    'subject' => "[BackBork KISS] Backup Started - {$hostname}",
+                    'body' => "BackBork KISS - Backup Started\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "User: {$data['user']} ({$requestor})\n" .
@@ -196,8 +196,8 @@ class BackBorkNotify {
                 $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
                 $requestor = $data['requestor'] ?? 'N/A';
                 return [
-                    'subject' => "[BackBork] Backup Completed - {$hostname}",
-                    'body' => "Backup job completed successfully.\n\n" .
+                    'subject' => "[BackBork KISS] Backup Completed - {$hostname}",
+                    'body' => "BackBork KISS - Backup Completed\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "User: {$data['user']} ({$requestor})\n" .
@@ -212,8 +212,8 @@ class BackBorkNotify {
                 $errors = is_array($data['errors']) ? implode("\n", $data['errors']) : $data['errors'];
                 $requestor = $data['requestor'] ?? 'N/A';
                 return [
-                    'subject' => "[BackBork] Backup FAILED - {$hostname}",
-                    'body' => "Backup job failed!\n\n" .
+                    'subject' => "[BackBork KISS] Backup FAILED - {$hostname}",
+                    'body' => "BackBork KISS - Backup FAILED\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "User: {$data['user']} ({$requestor})\n" .
@@ -231,8 +231,8 @@ class BackBorkNotify {
             case 'restore_start':
                 $requestor = $data['requestor'] ?? 'N/A';
                 return [
-                    'subject' => "[BackBork] Restore Started - {$hostname}",
-                    'body' => "Restore job started.\n\n" .
+                    'subject' => "[BackBork KISS] Restore Started - {$hostname}",
+                    'body' => "BackBork KISS - Restore Started\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "User: {$data['user']} ({$requestor})\n" .
@@ -246,8 +246,8 @@ class BackBorkNotify {
             case 'restore_success':
                 $requestor = $data['requestor'] ?? 'N/A';
                 return [
-                    'subject' => "[BackBork] Restore Completed - {$hostname}",
-                    'body' => "Restore job completed successfully.\n\n" .
+                    'subject' => "[BackBork KISS] Restore Completed - {$hostname}",
+                    'body' => "BackBork KISS - Restore Completed\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "User: {$data['user']} ({$requestor})\n" .
@@ -260,8 +260,8 @@ class BackBorkNotify {
             case 'restore_failure':
                 $requestor = $data['requestor'] ?? 'N/A';
                 return [
-                    'subject' => "[BackBork] Restore FAILED - {$hostname}",
-                    'body' => "Restore job failed!\n\n" .
+                    'subject' => "[BackBork KISS] Restore FAILED - {$hostname}",
+                    'body' => "BackBork KISS - Restore FAILED\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "User: {$data['user']} ({$requestor})\n" .
@@ -280,8 +280,8 @@ class BackBorkNotify {
                 $issue = $data['issue'] ?? 'Unknown issue';
                 $lastRun = $data['last_run'] ?? 'Unknown';
                 return [
-                    'subject' => "[BackBork] CRON HEALTH ALERT - {$hostname}",
-                    'body' => "BackBork cron health check detected an issue!\n\n" .
+                    'subject' => "[BackBork KISS] CRON HEALTH ALERT - {$hostname}",
+                    'body' => "BackBork KISS - Cron Health Alert\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "Issue: {$issue}\n" .
@@ -299,8 +299,8 @@ class BackBorkNotify {
                 $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
                 $errors = is_array($data['errors']) ? implode("\n", $data['errors']) : $data['errors'];
                 return [
-                    'subject' => "[BackBork] Queue Processing FAILED - {$hostname}",
-                    'body' => "Queue processing encountered failures!\n\n" .
+                    'subject' => "[BackBork KISS] Queue Processing FAILED - {$hostname}",
+                    'body' => "BackBork KISS - Queue Processing Failed\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "Affected Accounts: {$accounts}\n\n" .
@@ -313,8 +313,8 @@ class BackBorkNotify {
                 $count = $data['pruned_count'] ?? 0;
                 $details = is_array($data['details']) ? implode("\n", $data['details']) : ($data['details'] ?? '');
                 return [
-                    'subject' => "[BackBork] Backup Pruning Complete - {$hostname}",
-                    'body' => "Retention policy pruning completed.\n\n" .
+                    'subject' => "[BackBork KISS] Backup Pruning Complete - {$hostname}",
+                    'body' => "BackBork KISS - Backup Pruning Complete\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "Backups Removed: {$count}\n\n" .
@@ -330,8 +330,8 @@ class BackBorkNotify {
             case 'test':
                 // Test notification to verify settings are correct
                 return [
-                    'subject' => "[BackBork] Test Notification - {$hostname}",
-                    'body' => "This is a test notification from BackBork KISS.\n\n" .
+                    'subject' => "[BackBork KISS] Test Notification - {$hostname}",
+                    'body' => "BackBork KISS - Test Notification\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n\n" .
                               "If you received this, your notifications are configured correctly!",
@@ -342,8 +342,8 @@ class BackBorkNotify {
             default:
                 // Generic fallback for unknown event types
                 return [
-                    'subject' => "[BackBork] Notification - {$hostname}",
-                    'body' => "BackBork notification.\n\n" .
+                    'subject' => "[BackBork KISS] Notification - {$hostname}",
+                    'body' => "BackBork KISS - Notification\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
                               "Event: {$event}\n" .

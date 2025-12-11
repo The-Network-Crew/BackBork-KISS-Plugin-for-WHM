@@ -2,10 +2,10 @@
 
 ### Disaster Recovery for WHM — The Simple Way
 
-> [!CAUTION]
-> This is NOT yet production-ready. TESTING ONLY.
+> [!NOTE]
+> **Beta Release** (v1.3.x) — Tested and working as of v1.3.3.
 > 
-> If you want it released sooner, contribute to development!
+> We recommend testing in a non-production environment first. Bug reports and contributions welcome!
 
 ---
 

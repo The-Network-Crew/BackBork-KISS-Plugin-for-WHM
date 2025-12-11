@@ -1429,8 +1429,17 @@
         
         apiCall('get_remote_backups', { destination: destination, account: account }, 'GET').then(data => {
             if (data.backups && data.backups.length > 0) {
+                // Sort by ISO 8601 timestamp (oldest first)
+                const sorted = data.backups.sort((a, b) => {
+                    const fileA = a.display_name || a.file;
+                    const fileB = b.display_name || b.file;
+                    const tsA = formatBackupTimestamp(fileA);
+                    const tsB = formatBackupTimestamp(fileB);
+                    return tsA.localeCompare(tsB);  // Ascending (oldest first)
+                });
+                
                 select.innerHTML = '<option value="">-- Select Backup --</option>';
-                data.backups.forEach(backup => {
+                sorted.forEach(backup => {
                     // Use full path (file) as value
                     const filename = backup.display_name || backup.file;
                     const timestamp = formatBackupTimestamp(filename);
@@ -1538,11 +1547,13 @@
             if (data.success && data.backups && data.backups.length > 0) {
                 backupsCount.textContent = `${data.backups.length} backup${data.backups.length !== 1 ? 's' : ''}`;
                 
-                // Sort by date (oldest first based on filename)
+                // Sort by ISO 8601 timestamp (oldest first)
                 const sorted = data.backups.sort((a, b) => {
                     const fileA = a.file || a;
                     const fileB = b.file || b;
-                    return fileA.localeCompare(fileB);
+                    const tsA = formatBackupTimestamp(fileA);
+                    const tsB = formatBackupTimestamp(fileB);
+                    return tsA.localeCompare(tsB);  // Ascending (oldest first)
                 });
                 
                 backupsList.innerHTML = sorted.map(backup => {

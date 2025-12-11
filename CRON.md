@@ -250,13 +250,13 @@ curl -k -H "Authorization: whm root:TOKEN" \
 
 **Email Subject:**
 ```
-⚠️ [BackBork] Cron Health Check Failed on server.example.com
+⚠️ [BackBork KISS] Cron Health Check Failed on server.example.com
 ```
 
 **Email Body:**
 ```
-BackBork Cron Health Alert
-──────────────────────────
+BackBork KISS - Cron Health Alert
+------------------------------
 
 Server: server.example.com
 Time: 2024-01-15 12:00:00 UTC
