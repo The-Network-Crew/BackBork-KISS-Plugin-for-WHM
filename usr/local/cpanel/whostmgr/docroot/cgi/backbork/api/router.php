@@ -476,7 +476,7 @@ switch ($action) {
     
     /**
      * Delete a backup file from a destination
-     * Only works for Local destinations (remote deletion not supported)
+     * Supports both Local and remote (SFTP/FTP) destinations
      */
     case 'delete_backup':
         $data = json_decode(file_get_contents('php://input'), true);
@@ -513,47 +513,61 @@ switch ($action) {
             break;
         }
         
-        // Only allow deletion from Local destinations
-        if (strtolower($destination['type']) !== 'local') {
-            echo json_encode(['success' => false, 'message' => 'Deletion only supported for local destinations']);
-            break;
-        }
+        $destType = strtolower($destination['type'] ?? 'local');
         
-        // If full path provided, use it directly; otherwise build from filename
-        $basePath = $destination['path'] ?? '/backup';
-        if ($backupPath && strpos($backupPath, $basePath) === 0) {
-            // Full path provided and it's within the destination - use directly
-            $fullPath = $backupPath;
+        // Handle deletion based on destination type
+        if ($destType === 'local') {
+            // Local deletion - use filesystem
+            $basePath = $destination['path'] ?? '/backup';
+            if ($backupPath && strpos($backupPath, $basePath) === 0) {
+                $fullPath = $backupPath;
+            } else {
+                $accountDir = rtrim($basePath, '/') . '/' . $account . '/' . $backupFile;
+                $rootDir = rtrim($basePath, '/') . '/' . $backupFile;
+                $fullPath = file_exists($accountDir) ? $accountDir : $rootDir;
+            }
+            
+            if (!file_exists($fullPath)) {
+                echo json_encode(['success' => false, 'message' => 'Backup file not found']);
+                break;
+            }
+            
+            if (unlink($fullPath)) {
+                BackBorkLog::logEvent($currentUser, 'delete', [$account ?? basename($fullPath)], true, 
+                    "Deleted backup: " . basename($fullPath), BackBorkBootstrap::getRequestor());
+                echo json_encode(['success' => true, 'message' => 'Backup deleted successfully']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Failed to delete backup file']);
+            }
         } else {
-            // Build path: check account subdir first, then root
-            $accountDir = rtrim($basePath, '/') . '/' . $account . '/' . $backupFile;
-            $rootDir = rtrim($basePath, '/') . '/' . $backupFile;
-            $fullPath = file_exists($accountDir) ? $accountDir : $rootDir;
-        }
-        
-        // Verify file exists and delete
-        if (!file_exists($fullPath)) {
-            echo json_encode(['success' => false, 'message' => 'Backup file not found']);
-            break;
-        }
-        
-        if (unlink($fullPath)) {
-            BackBorkLog::logEvent($currentUser, 'delete', [$account ?? basename($fullPath)], true, 
-                "Deleted backup: " . basename($fullPath), BackBorkBootstrap::getRequestor());
-            echo json_encode(['success' => true, 'message' => 'Backup deleted successfully']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Failed to delete backup file']);
+            // Remote deletion - use transport
+            $validator = new BackBorkDestinationsValidator();
+            $transport = $validator->getTransportForDestination($destination);
+            
+            $remotePath = $backupPath ?: $backupFile;
+            $result = $transport->delete($remotePath, $destination);
+            
+            if ($result['success']) {
+                BackBorkLog::logEvent($currentUser, 'delete', [$account ?? basename($remotePath)], true, 
+                    "Deleted remote backup: " . basename($remotePath) . " from " . $destination['name'], 
+                    BackBorkBootstrap::getRequestor());
+            }
+            
+            echo json_encode($result);
         }
         break;
     
     /**
      * Get list of accounts that have backups at a destination
-     * Lists account directories in the backup path
+     * Lists account directories/files in the backup path
+     * Supports both Local and remote (SFTP/FTP) destinations
      */
     case 'get_backup_accounts':
         $data = json_decode(file_get_contents('php://input'), true);
         $destinationId = isset($data['destination']) ? $data['destination'] : 
                         (isset($_GET['destination']) ? $_GET['destination'] : '');
+        
+        BackBorkConfig::debugLog('get_backup_accounts: destination=' . $destinationId);
         
         if (empty($destinationId)) {
             echo json_encode(['success' => false, 'message' => 'Destination is required']);
@@ -565,38 +579,65 @@ switch ($action) {
         $destination = $parser->getDestinationById($destinationId);
         
         if (!$destination) {
+            BackBorkConfig::debugLog('get_backup_accounts: Destination not found');
             echo json_encode(['success' => false, 'message' => 'Destination not found']);
             break;
         }
         
-        // Only works for Local destinations
-        if (strtolower($destination['type']) !== 'local') {
-            echo json_encode(['success' => false, 'message' => 'Account listing only supported for local destinations']);
-            break;
-        }
-        
-        $backupDir = isset($destination['path']) ? $destination['path'] : '';
-        if (empty($backupDir) || !is_dir($backupDir)) {
-            echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
-            break;
-        }
-        
-        // List subdirectories (account folders) and filter by ACL
+        $destType = strtolower($destination['type'] ?? 'local');
+        BackBorkConfig::debugLog('get_backup_accounts: destType=' . $destType);
         $accounts = [];
-        $dirs = glob($backupDir . '/*', GLOB_ONLYDIR);
-        foreach ($dirs as $dir) {
-            $account = basename($dir);
-            if ($acl->canAccessAccount($account)) {
-                $accounts[] = $account;
+        
+        if ($destType === 'local') {
+            // Local: List subdirectories (account folders)
+            $backupDir = isset($destination['path']) ? $destination['path'] : '';
+            if (empty($backupDir) || !is_dir($backupDir)) {
+                echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
+                break;
             }
+            
+            $dirs = glob($backupDir . '/*', GLOB_ONLYDIR);
+            foreach ($dirs as $dir) {
+                $account = basename($dir);
+                if ($acl->canAccessAccount($account)) {
+                    $accounts[] = $account;
+                }
+            }
+        } else {
+            // Remote: List files and extract account names from cpmove filenames
+            BackBorkConfig::debugLog('get_backup_accounts: Listing remote files...');
+            $validator = new BackBorkDestinationsValidator();
+            $transport = $validator->getTransportForDestination($destination);
+            $files = $transport->listFiles('', $destination);
+            
+            BackBorkConfig::debugLog('get_backup_accounts: Got ' . count($files) . ' files from remote');
+            
+            $foundAccounts = [];
+            foreach ($files as $file) {
+                $filename = $file['file'] ?? '';
+                BackBorkConfig::debugLog('get_backup_accounts: Checking file: ' . $filename);
+                // Extract account from cpmove-USERNAME_... or cpmove-USERNAME.tar.gz
+                if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
+                    $account = strtolower($matches[1]);
+                    BackBorkConfig::debugLog('get_backup_accounts: Extracted account=' . $account);
+                    if ($acl->canAccessAccount($account)) {
+                        $foundAccounts[$account] = true;
+                    } else {
+                        BackBorkConfig::debugLog('get_backup_accounts: ACL denied access to ' . $account);
+                    }
+                }
+            }
+            $accounts = array_keys($foundAccounts);
         }
         
+        BackBorkConfig::debugLog('get_backup_accounts: Returning ' . count($accounts) . ' accounts');
         sort($accounts);
         echo json_encode(['success' => true, 'accounts' => $accounts]);
         break;
     
     /**
      * List backups for a specific account at a destination
+     * Supports both Local and remote (SFTP/FTP) destinations
      */
     case 'list_backups':
         $data = json_decode(file_get_contents('php://input'), true);
@@ -625,37 +666,59 @@ switch ($action) {
             break;
         }
         
-        // Only works for Local destinations
-        if (strtolower($destination['type']) !== 'local') {
-            echo json_encode(['success' => false, 'message' => 'Backup listing only supported for local destinations']);
-            break;
-        }
-        
-        $backupDir = isset($destination['path']) ? $destination['path'] : '';
-        if (empty($backupDir) || !is_dir($backupDir)) {
-            echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
-            break;
-        }
-        
-        // Find all backups in the account's directory
+        $destType = strtolower($destination['type'] ?? 'local');
         $backups = [];
-        $accountDir = rtrim($backupDir, '/') . '/' . $account;
         
-        if (is_dir($accountDir)) {
-            $files = glob($accountDir . '/cpmove-*.tar.gz');
+        if ($destType === 'local') {
+            // Local: List files in account directory
+            $backupDir = isset($destination['path']) ? $destination['path'] : '';
+            if (empty($backupDir) || !is_dir($backupDir)) {
+                echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
+                break;
+            }
+            
+            $accountDir = rtrim($backupDir, '/') . '/' . $account;
+            
+            if (is_dir($accountDir)) {
+                $files = glob($accountDir . '/cpmove-*.tar.gz');
+                foreach ($files as $file) {
+                    $backups[] = [
+                        'file' => basename($file),
+                        'path' => $file,
+                        'size' => filesize($file),
+                        'modified' => filemtime($file)
+                    ];
+                }
+            }
+        } else {
+            // Remote: List files and filter by account
+            $validator = new BackBorkDestinationsValidator();
+            $transport = $validator->getTransportForDestination($destination);
+            $files = $transport->listFiles('', $destination);
+            
+            $accountLower = strtolower($account);
             foreach ($files as $file) {
-                $backups[] = [
-                    'file' => basename($file),
-                    'path' => $file,
-                    'size' => filesize($file),
-                    'modified' => filemtime($file)
-                ];
+                $filename = $file['file'] ?? '';
+                // Check if this backup belongs to the requested account
+                if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
+                    if (strtolower($matches[1]) === $accountLower) {
+                        $backups[] = [
+                            'file' => $filename,
+                            'path' => $filename,  // For remote, path is just filename
+                            'size' => $file['size'] ?? 0,
+                            'modified' => 0  // Remote doesn't provide mtime easily
+                        ];
+                    }
+                }
             }
         }
         
-        // Sort by modified date (oldest first)
+        // Sort by modified date (oldest first) for local, by filename for remote
         usort($backups, function($a, $b) {
-            return $a['modified'] - $b['modified'];
+            if ($a['modified'] && $b['modified']) {
+                return $a['modified'] - $b['modified'];
+            }
+            return strcmp($a['file'], $b['file']);
         });
         
         echo json_encode(['success' => true, 'backups' => $backups]);

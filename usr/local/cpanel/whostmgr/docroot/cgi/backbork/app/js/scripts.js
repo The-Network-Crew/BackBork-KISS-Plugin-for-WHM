@@ -132,12 +132,12 @@
             if (restoreSelect && restoreSelect.options[0]) {
                 restoreSelect.options[0].text = '-- Select Source --';
             }
-            // Data tab: Only show Local destinations and use "Source" terminology
+            // Data tab: Show all destinations (including remote) with "Source" terminology
             const dataSelect = document.getElementById('data-destination');
             if (dataSelect) {
                 dataSelect.innerHTML = '<option value="">-- Select Source --</option>';
-                destinations.filter(d => d.type.toLowerCase() === 'local').forEach(dest => {
-                    dataSelect.innerHTML += `<option value="${dest.id}">${dest.name}</option>`;
+                destinations.forEach(dest => {
+                    dataSelect.innerHTML += `<option value="${dest.id}">${dest.name} (${dest.type})</option>`;
                 });
             }
         }).catch(err => {
@@ -652,7 +652,7 @@
                 container.innerHTML = `
                     <div class="alert alert-success" style="margin-bottom: 0;">
                         <strong>✓ Cron is properly configured</strong>
-                        <small style="display: block; opacity: 0.8; margin-top: 4px;">Path: ${data.path || '/etc/cron.d/backbork'}</small>
+                        <small style="display: block; opacity: 0.8; margin-top: 4px;">Path: <code>${data.path || '/etc/cron.d/backbork'}</code></small>
                     </div>
                     <code style="display: block; margin-top: 12px; padding: 10px; background: var(--terminal-bg); border-radius: 6px; font-size: 12px; color: var(--terminal-text); overflow-x: auto; white-space: pre-wrap; word-break: break-all;">${cronLine}</code>
                 `;

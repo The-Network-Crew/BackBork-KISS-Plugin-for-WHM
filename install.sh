@@ -146,6 +146,9 @@ find "${WHM_CGI_DIR}/backbork" -name "*.php" -exec chmod 644 {} \;
 # Cron handler needs to be executable
 chmod 755 "${WHM_CGI_DIR}/backbork/cron/handler.php"
 
+# Perl helper script needs to be executable
+chmod 755 "${WHM_CGI_DIR}/backbork/engine/transport/cpanel_transport.pl"
+
 # Directories
 chmod 755 "${WHM_CGI_DIR}/backbork/includes"
 chmod 755 "${WHM_CGI_DIR}/backbork/includes/gui"

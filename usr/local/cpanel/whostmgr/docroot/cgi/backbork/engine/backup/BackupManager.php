@@ -138,6 +138,7 @@ class BackBorkBackupManager {
         $success = empty($errors);
         
         // Log the complete operation with all account results
+        BackBorkConfig::debugLog('createBackup: Logging operation for user=' . $user . ' success=' . ($success ? 'true' : 'false') . ' accounts=' . implode(',', $accounts));
         $this->logOperation($user, 'backup', $accounts, $success, implode("\n", $logMessages));
         
         // Check notification preferences (new keys with legacy fallback)

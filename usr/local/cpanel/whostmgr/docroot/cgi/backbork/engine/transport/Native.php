@@ -35,6 +35,9 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     // Path to cPanel's native backup transport binary
     const TRANSPORT_BIN = '/scripts/cpbackup_transport_file';
     
+    // Path to our Perl helper that uses Cpanel::Transport::Files
+    const PERL_HELPER = '/usr/local/cpanel/whostmgr/docroot/cgi/backbork/engine/transport/cpanel_transport.pl';
+    
     /**
      * Upload a file using cpbackup_transport_file.
      * Files are placed in manual_backup/ subdirectory at destination.
@@ -161,17 +164,77 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     /**
      * List files at remote destination.
      * 
-     * NOT SUPPORTED for Native transport - cpbackup_transport_file only
-     * supports upload and download operations, not listing.
+     * Uses Perl helper to call Cpanel::Transport::Files->ls()
      * 
      * @param string $remotePath Path to list (relative to destination base)
      * @param array $destination Destination configuration from WHM
-     * @return array Empty array - listing not supported
+     * @return array Array of file info with 'file', 'size', 'type' keys
      */
     public function listFiles($remotePath, $destination) {
-        // cpbackup_transport_file does not support listing files
-        // Return empty array - caller should handle gracefully
-        return [];
+        BackBorkConfig::debugLog('Native::listFiles: Starting for destination=' . ($destination['id'] ?? 'unknown') . ' path=' . ($remotePath ?: 'default'));
+        
+        // Verify Perl helper exists
+        if (!file_exists(self::PERL_HELPER)) {
+            BackBorkConfig::debugLog('Native::listFiles: Perl helper not found at ' . self::PERL_HELPER);
+            return [];
+        }
+        
+        // Build command - path defaults to manual_backup in the Perl script
+        $cmd = '/usr/local/cpanel/3rdparty/bin/perl ' . escapeshellarg(self::PERL_HELPER) .
+               ' --action=ls' .
+               ' --transport=' . escapeshellarg($destination['id']);
+        
+        if (!empty($remotePath)) {
+            $cmd .= ' --path=' . escapeshellarg($remotePath);
+        }
+        
+        BackBorkConfig::debugLog('Native::listFiles: Executing command: ' . $cmd);
+        
+        // Execute and capture both stdout (JSON) and stderr (debug messages) separately
+        $descriptorSpec = [
+            0 => ['pipe', 'r'],  // stdin
+            1 => ['pipe', 'w'],  // stdout
+            2 => ['pipe', 'w']   // stderr
+        ];
+        
+        $process = proc_open($cmd, $descriptorSpec, $pipes);
+        
+        if (!is_resource($process)) {
+            BackBorkConfig::debugLog('Native::listFiles: Failed to start process');
+            return [];
+        }
+        
+        fclose($pipes[0]);  // Close stdin
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $returnCode = proc_close($process);
+        
+        // Log stderr (debug output from Perl script)
+        if (!empty($stderr)) {
+            BackBorkConfig::debugLog('Native::listFiles: Perl STDERR: ' . $stderr);
+        }
+        
+        $jsonOutput = $stdout;
+        BackBorkConfig::debugLog('Native::listFiles: Return code=' . $returnCode . ' Output=' . substr($jsonOutput, 0, 500));
+        
+        $result = json_decode($jsonOutput, true);
+        
+        if (!$result || !isset($result['success'])) {
+            BackBorkConfig::debugLog('Native::listFiles: Invalid JSON response: ' . $jsonOutput);
+            return [];
+        }
+        
+        if (!$result['success']) {
+            BackBorkConfig::debugLog('Native::listFiles: Failed - ' . ($result['message'] ?? 'Unknown error'));
+            return [];
+        }
+        
+        $fileCount = count($result['files'] ?? []);
+        BackBorkConfig::debugLog('Native::listFiles: Success - found ' . $fileCount . ' files');
+        
+        return $result['files'] ?? [];
     }
     
     /**
@@ -192,18 +255,52 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     /**
      * Delete a file from the destination.
      * 
-     * NOT SUPPORTED for Native transport - cpbackup_transport_file only
-     * supports upload and download operations, not deletion.
+     * Uses Perl helper to call Cpanel::Transport::Files->delete()
      * 
      * @param string $remotePath Path to file (relative to destination base)
      * @param array $destination Destination configuration from WHM
-     * @return array Result indicating operation not supported
+     * @return array Result with success status and message
      */
     public function delete($remotePath, $destination) {
-        // cpbackup_transport_file does not support file deletion
+        // Verify Perl helper exists
+        if (!file_exists(self::PERL_HELPER)) {
+            return [
+                'success' => false,
+                'message' => 'Perl helper not found'
+            ];
+        }
+        
+        if (empty($remotePath)) {
+            return [
+                'success' => false,
+                'message' => 'Path is required for delete'
+            ];
+        }
+        
+        // Build command
+        $cmd = '/usr/local/cpanel/3rdparty/bin/perl ' . escapeshellarg(self::PERL_HELPER) .
+               ' --action=delete' .
+               ' --transport=' . escapeshellarg($destination['id']) .
+               ' --path=' . escapeshellarg($remotePath);
+        
+        // Execute and capture output
+        $output = [];
+        $returnCode = 0;
+        exec($cmd . ' 2>&1', $output, $returnCode);
+        
+        $jsonOutput = implode("\n", $output);
+        $result = json_decode($jsonOutput, true);
+        
+        if (!$result || !isset($result['success'])) {
+            return [
+                'success' => false,
+                'message' => 'Invalid response from transport helper'
+            ];
+        }
+        
         return [
-            'success' => false,
-            'message' => 'Delete not supported for remote destinations via cpbackup_transport'
+            'success' => $result['success'],
+            'message' => $result['message'] ?? ($result['success'] ? 'Deleted' : 'Delete failed')
         ];
     }
     

@@ -122,6 +122,9 @@ class BackBorkLog {
         if (!is_dir(self::LOG_DIR)) {
             mkdir(self::LOG_DIR, 0750, true);
         }
+        
+        // Debug: Confirm logEvent was called
+        BackBorkConfig::debugLog('BackBorkLog::logEvent called: user=' . $user . ' type=' . $type . ' success=' . ($success ? 'true' : 'false'));
 
         // Auto-detect requestor if not provided
         if (empty($requestor)) {

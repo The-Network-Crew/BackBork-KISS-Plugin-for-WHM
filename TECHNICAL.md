@@ -209,6 +209,99 @@ We use this to:
 
 ---
 
+### 📂 cPanel Perl Modules — Internal Transport Layer
+
+cPanel's backup/restore system uses internal Perl modules for transport operations. These are useful reference points for understanding how WHM handles remote storage:
+
+#### Module Locations
+
+```
+/usr/local/cpanel/Cpanel/
+├── Backup/
+│   ├── Config.pm          # Backup configuration
+│   ├── Metadata.pm        # Backup metadata handling
+│   ├── Queue.pm           # WHM's native backup queue
+│   ├── Restore.pm         # Restore operations
+│   ├── StreamFileList.pm  # File listing utilities
+│   └── Transport/
+│       ├── DB.pm          # Transport database
+│       ├── History.pm     # Transport history tracking
+│       └── Session.pm     # Transport session management
+│
+└── Transport/
+    ├── Files.pm           # Base transport class
+    ├── Response.pm        # Transport response handling
+    └── Files/
+        ├── AmazonS3.pm    # S3 transport
+        ├── Backblaze.pm   # B2 transport
+        ├── Custom.pm      # Custom transport scripts
+        ├── FTP.pm         # FTP transport
+        ├── GoogleDrive.pm # Google Drive transport
+        ├── Local.pm       # Local filesystem transport
+        ├── Rsync.pm       # Rsync transport
+        ├── S3Compatible.pm# S3-compatible (MinIO, etc.)
+        ├── SFTP.pm        # SFTP transport ← Used by cpbackup_transport_file
+        └── WebDAV.pm      # WebDAV transport
+```
+
+#### Key Files for Investigation
+
+| File | Purpose | Why It Matters |
+|------|---------|----------------|
+| `Transport/Files.pm` | Base class for all transports | Defines common interface (get, put, list?) |
+| `Transport/Files/SFTP.pm` | SFTP implementation | How WHM handles SFTP operations |
+| `Backup/Restore.pm` | Restore orchestration | How "File & Directory Restoration" works |
+| `Backup/StreamFileList.pm` | File listing | May contain remote listing logic |
+| `Backup/Metadata.pm` | Backup metadata | How WHM tracks what's on remote storage |
+
+#### Examining These Modules
+
+```bash
+# View available methods in the base transport class
+grep "^sub " /usr/local/cpanel/Cpanel/Transport/Files.pm
+
+# Check SFTP-specific implementation
+grep "^sub " /usr/local/cpanel/Cpanel/Transport/Files/SFTP.pm
+
+# Look for list/browse functionality
+grep -r "sub list\|sub browse\|sub dir" /usr/local/cpanel/Cpanel/Transport/
+
+# Check how restore reads remote files
+grep -r "list\|browse\|readdir" /usr/local/cpanel/Cpanel/Backup/Restore.pm
+```
+
+> [!NOTE]
+> These modules are cPanel internal and may change between versions. The `cpbackup_transport_file` CLI wrapper is the supported interface, but it lacks a `--list` option.
+
+#### BackBork's Perl Helper
+
+Since `cpbackup_transport_file` doesn't expose `ls()` or `delete()`, BackBork includes a Perl helper script that bridges PHP to cPanel's internal transport modules:
+
+**Location:** `engine/transport/cpanel_transport.pl`
+
+**Usage:**
+```bash
+# List files on remote destination
+/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
+  --action=ls --transport=<destination_id> [--path=manual_backup]
+
+# Delete file from remote destination
+/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
+  --action=delete --transport=<destination_id> --path=<filename>
+```
+
+**How it works:**
+1. Reads transport config from `Cpanel::Backup::Config`
+2. Instantiates `Cpanel::Transport::Files->new($type, $opts)`
+3. Calls `$transport->ls($path)` or `$transport->delete($path)`
+4. Returns JSON to stdout for PHP consumption
+
+This enables BackBork to:
+- List backups on remote SFTP/FTP destinations for restore
+- Delete backups from remote destinations in the Data tab
+
+---
+
 ### 🔥 Hot Database Backups
 
 BackBork supports hot database backups using mariadb-backup or mysqlbackup.
