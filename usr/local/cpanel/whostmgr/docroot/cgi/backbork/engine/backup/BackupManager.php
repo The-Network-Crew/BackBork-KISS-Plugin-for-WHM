@@ -387,6 +387,10 @@ class BackBorkBackupManager {
                 $this->writeBackupLog($logFile, "        ✗ Upload failed: " . ($result['message'] ?? 'Unknown error'));
             } else {
                 $this->writeBackupLog($logFile, "        ✓ Upload successful");
+                // Log transport output for debugging
+                if (!empty($result['transport_output'])) {
+                    $this->writeBackupLog($logFile, "        → Transport: " . $result['transport_output']);
+                }
             }
         }
         
@@ -459,8 +463,13 @@ class BackBorkBackupManager {
         $validator = new BackBorkDestinationsValidator();
         $transport = $validator->getTransportForDestination($destination);
         
-        // List all files at destination root
-        $files = $transport->listFiles('', $destination);
+        // For remote destinations with account filter, list inside account subdirectory
+        // Backups are stored as {account}/cpmove-{account}_timestamp.tar.gz
+        $listPath = '';
+        if (!empty($account)) {
+            $listPath = $account;  // List inside account folder
+        }
+        $files = $transport->listFiles($listPath, $destination);
 
         // Security: Get list of accounts this user can access (for filtering)
         $acl = BackBorkBootstrap::getACL();
@@ -509,11 +518,17 @@ class BackBorkBackupManager {
                 }
             }
             
-            // For Native (SFTP/FTP) transport, files are flat in manual_backup/
-            // For Local transport, files may be in account subdirectories
-            // Use just the filename for remote paths (Native transport)
+            // Build file path for restore operations
+            // For remote destinations, include account folder in path: {account}/{filename}
+            // For local destinations, files may be in account subdirectories
             $destType = strtolower($destination['type'] ?? 'local');
-            $filePath = ($destType === 'sftp' || $destType === 'ftp') ? $filename : ($backupAccount ? $backupAccount . '/' . $filename : $filename);
+            if ($destType === 'sftp' || $destType === 'ftp') {
+                // Remote: prepend account folder if we listed inside it
+                $filePath = !empty($listPath) ? $listPath . '/' . $filename : $filename;
+            } else {
+                // Local: use account subfolder if known
+                $filePath = $backupAccount ? $backupAccount . '/' . $filename : $filename;
+            }
             
             // Extract date from filename (e.g., cpmove-user_2024-01-15_12-30-00.tar.gz)
             $backupDate = 'Unknown';

@@ -157,9 +157,12 @@ class BackBorkRetrieval {
                 $timestamp = substr_replace($timestamp, '-', 7, 1);
             }
             
+            // Build path including account folder if we listed inside it
+            $filePath = $path ? $path . '/' . $filename : $filename;
+            
             $backups[] = [
                 'file' => $filename,
-                'path' => $file['path'] ?? $filename,
+                'path' => $filePath,
                 'account' => $account,
                 'size' => $file['size'] ?? 0,
                 'date' => $timestamp ?? ($file['date'] ?? 'Unknown'),

@@ -627,41 +627,66 @@ switch ($action) {
         $accounts = [];
         
         if ($destType === 'local') {
-            // Local: List subdirectories (account folders)
-            $backupDir = isset($destination['path']) ? $destination['path'] : '';
-            if (empty($backupDir) || !is_dir($backupDir)) {
-                echo json_encode(['success' => false, 'message' => 'Backup directory not found']);
-                break;
-            }
-            
-            $dirs = glob($backupDir . '/*', GLOB_ONLYDIR);
-            foreach ($dirs as $dir) {
-                $account = basename($dir);
-                if ($acl->canAccessAccount($account)) {
-                    $accounts[] = $account;
-                }
-            }
-        } else {
-            // Remote: List files and extract account names from cpmove filenames
-            BackBorkConfig::debugLog('get_backup_accounts: Listing remote files...');
+            // Local: Use transport to list account folders (consistent with remote)
             $validator = new BackBorkDestinationsValidator();
             $transport = $validator->getTransportForDestination($destination);
             $files = $transport->listFiles('', $destination);
             
-            BackBorkConfig::debugLog('get_backup_accounts: Got ' . count($files) . ' files from remote');
+            foreach ($files as $file) {
+                $filename = $file['file'] ?? '';
+                $fileType = $file['type'] ?? 'file';
+                
+                // Check if it's a directory (account folder)
+                if ($fileType === 'dir') {
+                    $account = strtolower($filename);
+                    if ($acl->canAccessAccount($account)) {
+                        $accounts[] = $account;
+                    }
+                }
+                // Also check for flat cpmove files (backward compatibility)
+                elseif (preg_match('/cpmove-([a-z0-9_]+?)(?:_\\d{4}-\\d{2}-\\d{2}|\\.tar|$)/i', $filename, $matches)) {
+                    $account = strtolower($matches[1]);
+                    if ($acl->canAccessAccount($account) && !in_array($account, $accounts)) {
+                        $accounts[] = $account;
+                    }
+                }
+            }
+        } else {
+            // Remote: List directories (account folders) at destination root
+            // Backups are stored as {account}/cpmove-{account}_timestamp.tar.gz
+            BackBorkConfig::debugLog('get_backup_accounts: Listing remote directories...');
+            $validator = new BackBorkDestinationsValidator();
+            $transport = $validator->getTransportForDestination($destination);
+            $files = $transport->listFiles('', $destination);
+            
+            BackBorkConfig::debugLog('get_backup_accounts: Got ' . count($files) . ' entries from remote');
             
             $foundAccounts = [];
             foreach ($files as $file) {
                 $filename = $file['file'] ?? '';
-                BackBorkConfig::debugLog('get_backup_accounts: Checking file: ' . $filename);
-                // Extract account from cpmove-USERNAME_... or cpmove-USERNAME.tar.gz
-                if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
-                    $account = strtolower($matches[1]);
-                    BackBorkConfig::debugLog('get_backup_accounts: Extracted account=' . $account);
+                $fileType = $file['type'] ?? 'file';
+                BackBorkConfig::debugLog('get_backup_accounts: Checking: ' . $filename . ' (type=' . $fileType . ')');
+                
+                // Check if it's a directory (account folder)
+                if ($fileType === 'dir' || $fileType === 'd' || $fileType === 'directory') {
+                    $account = strtolower($filename);
+                    // Skip hidden directories and common non-account dirs
+                    if (strpos($account, '.') === 0 || in_array($account, ['lost+found', 'tmp', 'temp'])) {
+                        continue;
+                    }
+                    BackBorkConfig::debugLog('get_backup_accounts: Found account folder=' . $account);
                     if ($acl->canAccessAccount($account)) {
                         $foundAccounts[$account] = true;
                     } else {
                         BackBorkConfig::debugLog('get_backup_accounts: ACL denied access to ' . $account);
+                    }
+                }
+                // Also check for flat cpmove files (backward compatibility)
+                elseif (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
+                    $account = strtolower($matches[1]);
+                    BackBorkConfig::debugLog('get_backup_accounts: Found flat backup file, account=' . $account);
+                    if ($acl->canAccessAccount($account)) {
+                        $foundAccounts[$account] = true;
                     }
                 }
             }
@@ -729,24 +754,22 @@ switch ($action) {
                 }
             }
         } else {
-            // Remote: List files and filter by account
+            // Remote: List files inside account subdirectory
+            // Backups are stored as {account}/cpmove-{account}_timestamp.tar.gz
             $validator = new BackBorkDestinationsValidator();
             $transport = $validator->getTransportForDestination($destination);
-            $files = $transport->listFiles('', $destination);
+            $files = $transport->listFiles($account, $destination);  // List inside account folder
             
-            $accountLower = strtolower($account);
             foreach ($files as $file) {
                 $filename = $file['file'] ?? '';
-                // Check if this backup belongs to the requested account
-                if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
-                    if (strtolower($matches[1]) === $accountLower) {
-                        $backups[] = [
-                            'file' => $filename,
-                            'path' => $filename,  // For remote, path is just filename
-                            'size' => $file['size'] ?? 0,
-                            'modified' => 0  // Remote doesn't provide mtime easily
-                        ];
-                    }
+                // Only include cpmove backup files
+                if (preg_match('/^cpmove-.*\\.tar\\.gz$/i', $filename)) {
+                    $backups[] = [
+                        'file' => $filename,
+                        'path' => $account . '/' . $filename,  // Full path for delete/restore
+                        'size' => $file['size'] ?? 0,
+                        'modified' => $file['mtime'] ?? 0
+                    ];
                 }
             }
         }

@@ -122,12 +122,21 @@ class BackBorkQueue {
         // Generate unique job identifier
         $jobId = $this->generateJobId();
         
+        // Resolve destination name for display (store once at creation)
+        $destinationName = $destinationId;
+        $parser = new BackBorkDestinationsParser();
+        $dest = $parser->getDestinationById($destinationId);
+        if ($dest && !empty($dest['name'])) {
+            $destinationName = $dest['name'];
+        }
+        
         // Build job record with all required fields
         $job = [
             'id' => $jobId,                                                      // Unique job identifier
             'type' => 'backup',                                                  // Job type (backup/restore)
             'accounts' => $accounts,                                             // Account list or ['*']
             'destination' => $destinationId,                                     // Target destination ID
+            'destination_name' => $destinationName,                              // Human-readable name
             'schedule' => $schedule,                                             // Schedule frequency
             'user' => $user,                                                     // Owner of this job
             'created_at' => date('Y-m-d H:i:s'),                                // Creation timestamp

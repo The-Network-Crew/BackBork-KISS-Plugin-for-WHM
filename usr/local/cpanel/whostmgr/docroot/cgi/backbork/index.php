@@ -3,7 +3,7 @@
  * BackBork KISS - WHM Plugin Main Entry Point
  * Disaster Recovery Plugin for WHM
  *
- * Wraps pkgacct, cpbackup_transport_file, and backup_restore_manager
+ * Wraps pkgacct, Cpanel::Transport::Files, and backup_restore_manager
  * with SFTP destination support from WHM Backup Configuration
  *
  * BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)

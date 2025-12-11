@@ -118,32 +118,42 @@ Creates a complete backup of an account.
 
 ---
 
-### 📤 `/scripts/cpbackup_transport_file` — File Transport
+### 📤 BackBork Perl Transport Helper
 
-Moves files to/from remote destinations.
+BackBork uses a custom Perl helper that interfaces directly with `Cpanel::Transport::Files` for all remote operations. This provides better error handling and control than cPanel's CLI wrapper.
+
+**Location:** `engine/transport/cpanel_transport.pl`
 
 #### ⬆️ Upload (Backup → Remote)
 
 ```bash
-cpbackup_transport_file --transport <id> --upload </path/to/file>
+/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
+  --action=upload --transport=<id> --local=/path/to/file [--remote=subdir/]
 ```
 
 #### ⬇️ Download (Remote → Local)
 
 ```bash
-cpbackup_transport_file --transport <id> \
-  --download <remote/path/file.tar.gz> \
-  --download-to </local/path/file.tar.gz>
+/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
+  --action=download --transport=<id> --remote=<filename> --local=/path/to/save
 ```
 
-> [!IMPORTANT]
-> Uploads go to `<path>/manual_backup/<filename>` — that's WHM's behavior, not ours. Keep this in mind when browsing your backup storage.
-
-#### 🔍 Debug Mode
+#### 📂 List Files
 
 ```bash
-cpbackup_transport_file --debug --transport <id> --upload <file>
+/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
+  --action=ls --transport=<id> [--path=subdir]
 ```
+
+#### 🗑️ Delete File
+
+```bash
+/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
+  --action=delete --transport=<id> --path=<filename>
+```
+
+> [!NOTE]
+> Files are stored directly at the destination's configured base path. The helper automatically prepends the base path from the destination config.
 
 ---
 
@@ -240,7 +250,7 @@ cPanel's backup/restore system uses internal Perl modules for transport operatio
         ├── Local.pm       # Local filesystem transport
         ├── Rsync.pm       # Rsync transport
         ├── S3Compatible.pm# S3-compatible (MinIO, etc.)
-        ├── SFTP.pm        # SFTP transport ← Used by cpbackup_transport_file
+        ├── SFTP.pm        # SFTP transport ← Used by BackBork's Perl helper
         └── WebDAV.pm      # WebDAV transport
 ```
 
@@ -271,34 +281,22 @@ grep -r "list\|browse\|readdir" /usr/local/cpanel/Cpanel/Backup/Restore.pm
 ```
 
 > [!NOTE]
-> These modules are cPanel internal and may change between versions. The `cpbackup_transport_file` CLI wrapper is the supported interface, but it lacks a `--list` option.
+> These modules are cPanel internal and may change between versions. BackBork's Perl helper (`cpanel_transport.pl`) provides a stable interface to these modules.
 
-#### BackBork's Perl Helper
+#### How the Perl Helper Works
 
-Since `cpbackup_transport_file` doesn't expose `ls()` or `delete()`, BackBork includes a Perl helper script that bridges PHP to cPanel's internal transport modules:
-
-**Location:** `engine/transport/cpanel_transport.pl`
-
-**Usage:**
-```bash
-# List files on remote destination
-/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
-  --action=ls --transport=<destination_id> [--path=manual_backup]
-
-# Delete file from remote destination
-/usr/local/cpanel/3rdparty/bin/perl cpanel_transport.pl \
-  --action=delete --transport=<destination_id> --path=<filename>
-```
-
-**How it works:**
-1. Reads transport config from `Cpanel::Backup::Config`
-2. Instantiates `Cpanel::Transport::Files->new($type, $opts)`
-3. Calls `$transport->ls($path)` or `$transport->delete($path)`
+1. Reads transport config from `Cpanel::Backup::Transport->get_enabled_destinations()`
+2. Instantiates `Cpanel::Transport::Files->new($type, $config)`
+3. Calls the appropriate method: `put()`, `get()`, `ls()`, `delete()`, or `mkdir()`
 4. Returns JSON to stdout for PHP consumption
+5. Debug output goes to stderr for logging
 
 This enables BackBork to:
-- List backups on remote SFTP/FTP destinations for restore
-- Delete backups from remote destinations in the Data tab
+- Upload backups directly to remote SFTP/FTP destinations
+- Download backups for restore
+- List backups on remote destinations
+- Delete old backups for retention management
+- Create directories as needed
 
 ---
 
@@ -555,13 +553,7 @@ The UI polls this file in real-time using `GET ?action=get_restore_log&restore_i
 > [!WARNING]
 > These are known limitations of WHM's underlying tools, not BackBork bugs. We've documented workarounds below.
 
-### 1️⃣ Upload Path Structure
-
-| Problem | Files go to `manual_backup/` subdirectory |
-|---------|-------------------------------------------|
-| **Workaround** | We document this; timestamps in filenames help organize |
-
-### 2️⃣ No Auto Folder Creation
+### 1️⃣ No Auto Folder Creation
 
 | Problem | Can't auto-create `daily/2024-01-15/` folders |
 |---------|-----------------------------------------------|
@@ -851,7 +843,10 @@ tail -f /usr/local/cpanel/logs/cpbackup/*
 ### 🔍 Debug Transport
 
 ```bash
-cpbackup_transport_file --debug --transport SFTP_Server --upload /path/to/file
+# Test upload via BackBork's Perl helper
+/usr/local/cpanel/3rdparty/bin/perl \
+  /usr/local/cpanel/whostmgr/docroot/cgi/backbork/engine/transport/cpanel_transport.pl \
+  --action=upload --transport=SFTP_Server --local=/path/to/file 2>&1
 ```
 
 ### ✅ Test Destination
