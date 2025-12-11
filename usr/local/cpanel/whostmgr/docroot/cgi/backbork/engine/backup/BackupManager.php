@@ -112,7 +112,8 @@ class BackBorkBackupManager {
                 [
                     'accounts' => $accounts,
                     'destination' => $destination['name'],
-                    'user' => $user
+                    'user' => $user,
+                    'requestor' => $this->getRequestor()
                 ],
                 $userConfig
             );
@@ -151,6 +152,7 @@ class BackBorkBackupManager {
                     'accounts' => $accounts,
                     'destination' => $destination['name'],
                     'user' => $user,
+                    'requestor' => BackBorkBootstrap::getRequestor(),
                     'results' => $results
                 ],
                 $userConfig
@@ -163,6 +165,7 @@ class BackBorkBackupManager {
                     'accounts' => $accounts,
                     'destination' => $destination['name'],
                     'user' => $user,
+                    'requestor' => BackBorkBootstrap::getRequestor(),
                     'errors' => $errors
                 ],
                 $userConfig
@@ -397,8 +400,11 @@ class BackBorkBackupManager {
                 }
             }
             
-            // Include account prefix in file path since backups are stored in $account/ subdirectory
-            $filePath = $backupAccount ? $backupAccount . '/' . $filename : $filename;
+            // For Native (SFTP/FTP) transport, files are flat in manual_backup/
+            // For Local transport, files may be in account subdirectories
+            // Use just the filename for remote paths (Native transport)
+            $destType = strtolower($destination['type'] ?? 'local');
+            $filePath = ($destType === 'sftp' || $destType === 'ftp') ? $filename : ($backupAccount ? $backupAccount . '/' . $filename : $filename);
             
             $backups[] = [
                 'file' => $filePath,

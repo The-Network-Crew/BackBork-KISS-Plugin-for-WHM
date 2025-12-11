@@ -100,7 +100,10 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
      * Download a file using cpbackup_transport_file.
      * Retrieves backup from remote destination to local path.
      * 
-     * @param string $remotePath Path at remote destination
+     * NOTE: cpbackup_transport stores uploads in manual_backup/ subdirectory.
+     * This method expects remotePath to be just the filename (not including manual_backup/).
+     * 
+     * @param string $remotePath Filename or path at remote destination
      * @param string $localPath Local path to save downloaded file
      * @param array $destination Destination configuration from WHM
      * @return array Result with success status and local path
@@ -120,11 +123,18 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
             mkdir($localDir, 0700, true);
         }
         
+        // cpbackup_transport stores files in manual_backup/ subdirectory
+        // Prepend this path if not already present
+        $downloadPath = $remotePath;
+        if (strpos($remotePath, 'manual_backup/') !== 0) {
+            $downloadPath = 'manual_backup/' . ltrim($remotePath, '/');
+        }
+        
         // Build download command
         // Syntax: cpbackup_transport_file --transport <id> --download <remote_path> --download-to <local_path>
         $transportCmd = self::TRANSPORT_BIN .
                         ' --transport ' . escapeshellarg($destination['id']) .
-                        ' --download ' . escapeshellarg($remotePath) .
+                        ' --download ' . escapeshellarg($downloadPath) .
                         ' --download-to ' . escapeshellarg($localPath);
         
         // Execute download command
@@ -150,208 +160,87 @@ class BackBorkTransportNative implements BackBorkTransportInterface {
     
     /**
      * List files at remote destination.
-     * Uses SSH for SFTP destinations to enumerate backup files.
+     * 
+     * NOT SUPPORTED for Native transport - cpbackup_transport_file only
+     * supports upload and download operations, not listing.
      * 
      * @param string $remotePath Path to list (relative to destination base)
      * @param array $destination Destination configuration from WHM
-     * @return array List of file info arrays with filename, size, and date
+     * @return array Empty array - listing not supported
      */
     public function listFiles($remotePath, $destination) {
-        $files = [];
-        
-        // Handle SFTP destinations via direct SSH connection
-        if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
-            // Extract connection details from destination config
-            $host = $destination['host'] ?? '';
-            $port = $destination['port'] ?? 22;
-            $username = $destination['username'] ?? '';
-            $basePath = $destination['path'] ?? '/';
-            
-            // Validate required connection details
-            if (empty($host) || empty($username)) {
-                return $files;
-            }
-            
-            // Build full path to list
-            $fullPath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
-            
-            // Use find command to locate backup files and get metadata
-            // Output format: filename|size|mtime
-            $sshCmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes " .
-                      escapeshellarg("{$username}@{$host}") . " " .
-                      "'find " . escapeshellarg($fullPath) . " -name \"cpmove-*.tar.gz\" -printf \"%f|%s|%T@\\n\" 2>/dev/null'";
-            
-            $output = [];
-            exec($sshCmd, $output);
-            
-            // Parse find output into file info arrays
-            foreach ($output as $line) {
-                $parts = explode('|', $line);
-                if (count($parts) >= 3) {
-                    $files[] = [
-                        'file' => $parts[0],
-                        'size' => (int)$parts[1],
-                        'mtime' => (int)$parts[2],
-                        'date' => date('Y-m-d H:i:s', (int)$parts[2])
-                    ];
-                }
-            }
-        }
-        
-        return $files;
+        // cpbackup_transport_file does not support listing files
+        // Return empty array - caller should handle gracefully
+        return [];
     }
     
     /**
      * Check if a file exists at the destination.
-     * Uses SSH for SFTP destinations.
+     * 
+     * NOT SUPPORTED for Native transport - cpbackup_transport_file only
+     * supports upload and download operations.
      * 
      * @param string $remotePath Path to file (relative to destination base)
      * @param array $destination Destination configuration from WHM
-     * @return bool True if file exists
+     * @return bool Always false - existence check not supported
      */
     public function fileExists($remotePath, $destination) {
-        if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
-            $host = $destination['host'] ?? '';
-            $port = $destination['port'] ?? 22;
-            $username = $destination['username'] ?? '';
-            $basePath = $destination['path'] ?? '/';
-            
-            if (empty($host) || empty($username)) {
-                return false;
-            }
-            
-            $fullPath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
-            
-            // Check file exists via SSH
-            $sshCmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes " .
-                      escapeshellarg("{$username}@{$host}") . " " .
-                      escapeshellarg("test -f " . escapeshellarg($fullPath) . " && echo 'EXISTS'");
-            
-            $output = shell_exec($sshCmd . ' 2>/dev/null');
-            return trim($output ?? '') === 'EXISTS';
-        }
-        
-        // For other types, use listFiles to check
-        $dir = dirname($remotePath);
-        $filename = basename($remotePath);
-        $files = $this->listFiles($dir, $destination);
-        
-        foreach ($files as $file) {
-            if (($file['file'] ?? '') === $filename) {
-                return true;
-            }
-        }
-        
+        // cpbackup_transport_file does not support file existence checks
         return false;
     }
     
     /**
      * Delete a file from the destination.
-     * Uses SSH for SFTP destinations to remove files.
+     * 
+     * NOT SUPPORTED for Native transport - cpbackup_transport_file only
+     * supports upload and download operations, not deletion.
      * 
      * @param string $remotePath Path to file (relative to destination base)
      * @param array $destination Destination configuration from WHM
-     * @return array Result with success status and message
+     * @return array Result indicating operation not supported
      */
     public function delete($remotePath, $destination) {
-        // Handle SFTP destinations via direct SSH connection
-        if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
-            // Extract connection details
-            $host = $destination['host'] ?? '';
-            $port = $destination['port'] ?? 22;
-            $username = $destination['username'] ?? '';
-            $basePath = $destination['path'] ?? '/';
-            
-            // Validate required connection details
-            if (empty($host) || empty($username)) {
-                return ['success' => false, 'message' => 'Invalid destination configuration'];
-            }
-            
-            // Build full path to delete
-            $fullPath = rtrim($basePath, '/') . '/' . ltrim($remotePath, '/');
-            
-            // Execute rm command via SSH
-            $sshCmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes " .
-                      escapeshellarg("{$username}@{$host}") . " " .
-                      "'rm -f " . escapeshellarg($fullPath) . "'";
-            
-            $returnCode = 0;
-            exec($sshCmd . ' 2>&1', $output, $returnCode);
-            
-            return [
-                'success' => $returnCode === 0,
-                'message' => $returnCode === 0 ? 'File deleted' : 'Delete failed: ' . implode("\n", $output)
-            ];
-        }
-        
-        return ['success' => false, 'message' => 'Delete not supported for this destination type'];
+        // cpbackup_transport_file does not support file deletion
+        return [
+            'success' => false,
+            'message' => 'Delete not supported for remote destinations via cpbackup_transport'
+        ];
     }
     
     /**
      * Test connection to destination.
-     * Verifies SFTP/FTP connectivity and authentication.
+     * 
+     * Uses WHM's backup_cmd to validate the transport destination.
      * 
      * @param array $destination Destination configuration from WHM
      * @return array Result with success status and connection message
      */
     public function testConnection($destination) {
-        // Test SFTP connection via SSH
-        if ($destination['type'] === 'SFTP' || $destination['type'] === 'sftp') {
-            $host = $destination['host'] ?? '';
-            $port = $destination['port'] ?? 22;
-            $username = $destination['username'] ?? '';
-            
-            // Build SSH test command with short timeout
-            $cmd = "ssh -p {$port} -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=10 " .
-                   escapeshellarg("{$username}@{$host}") . " 'echo connected' 2>&1";
-            
-            $output = [];
-            $returnCode = 0;
-            exec($cmd, $output, $returnCode);
-            
-            // Check for successful connection
-            if ($returnCode === 0 && in_array('connected', $output)) {
-                return ['success' => true, 'message' => 'SFTP connection successful'];
-            }
-            
+        // Verify destination has required fields
+        if (empty($destination['id'])) {
             return [
                 'success' => false,
-                'message' => 'SFTP connection failed: ' . implode(' ', $output)
+                'message' => 'Destination ID is required'
             ];
         }
         
-        // Test FTP connection via curl
-        if ($destination['type'] === 'FTP' || $destination['type'] === 'ftp') {
-            $host = $destination['host'] ?? '';
-            $port = $destination['port'] ?? 21;
-            
-            // Use curl to test FTP connection
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => "ftp://{$host}:{$port}/",
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 10,
-                CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_FTP_USE_EPSV => true,
-                CURLOPT_FTPLISTONLY => true
-            ]);
-            
-            // Add credentials if provided
-            if (!empty($destination['username'])) {
-                curl_setopt($ch, CURLOPT_USERPWD, $destination['username'] . ':');
-            }
-            
-            $result = curl_exec($ch);
-            $error = curl_error($ch);
-            curl_close($ch);
-            
-            if ($result !== false) {
-                return ['success' => true, 'message' => 'FTP connection successful'];
-            }
-            
-            return ['success' => false, 'message' => 'FTP connection failed: ' . $error];
+        // Use WHM's backup_cmd to validate the transport
+        $cmd = '/usr/local/cpanel/bin/backup_cmd id=' . escapeshellarg($destination['id']) . ' disableonfail=0';
+        
+        $output = [];
+        $returnCode = 0;
+        exec($cmd . ' 2>&1', $output, $returnCode);
+        
+        if ($returnCode === 0) {
+            return [
+                'success' => true,
+                'message' => 'Transport validated successfully'
+            ];
         }
         
-        return ['success' => false, 'message' => 'Unsupported destination type'];
+        return [
+            'success' => false,
+            'message' => 'Transport validation failed: ' . implode(' ', $output)
+        ];
     }
 }

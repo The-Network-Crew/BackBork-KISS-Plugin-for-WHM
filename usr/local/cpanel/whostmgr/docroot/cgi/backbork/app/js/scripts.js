@@ -127,6 +127,11 @@
                     select.innerHTML += `<option value="${dest.id}">${dest.name} (${dest.type})</option>`;
                 });
             });
+            // Restore tab uses "Source" terminology
+            const restoreSelect = document.getElementById('restore-destination');
+            if (restoreSelect && restoreSelect.options[0]) {
+                restoreSelect.options[0].text = '-- Select Source --';
+            }
         }).catch(err => {
             console.error('Failed to load destinations', err);
             document.querySelectorAll('.destination-select').forEach(select => {

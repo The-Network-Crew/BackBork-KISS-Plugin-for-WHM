@@ -179,12 +179,13 @@ class BackBorkNotify {
             
             case 'backup_start':
                 $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
+                $requestor = $data['requestor'] ?? 'N/A';
                 return [
                     'subject' => "[BackBork] Backup Started - {$hostname}",
                     'body' => "Backup job started.\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
-                              "User: {$data['user']}\n" .
+                              "User: {$data['user']} ({$requestor})\n" .
                               "Accounts: {$accounts}\n" .
                               "Destination: {$data['destination']}",
                     'color' => '#3498db',  // Blue - in progress
@@ -193,12 +194,13 @@ class BackBorkNotify {
                 
             case 'backup_success':
                 $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
+                $requestor = $data['requestor'] ?? 'N/A';
                 return [
                     'subject' => "[BackBork] Backup Completed - {$hostname}",
                     'body' => "Backup job completed successfully.\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
-                              "User: {$data['user']}\n" .
+                              "User: {$data['user']} ({$requestor})\n" .
                               "Accounts: {$accounts}\n" .
                               "Destination: {$data['destination']}",
                     'color' => '#059669',  // Green - success
@@ -208,12 +210,13 @@ class BackBorkNotify {
             case 'backup_failure':
                 $accounts = is_array($data['accounts']) ? implode(', ', $data['accounts']) : $data['accounts'];
                 $errors = is_array($data['errors']) ? implode("\n", $data['errors']) : $data['errors'];
+                $requestor = $data['requestor'] ?? 'N/A';
                 return [
                     'subject' => "[BackBork] Backup FAILED - {$hostname}",
                     'body' => "Backup job failed!\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
-                              "User: {$data['user']}\n" .
+                              "User: {$data['user']} ({$requestor})\n" .
                               "Accounts: {$accounts}\n" .
                               "Destination: {$data['destination']}\n\n" .
                               "Errors:\n{$errors}",
@@ -226,12 +229,13 @@ class BackBorkNotify {
             // ================================================================
                 
             case 'restore_start':
+                $requestor = $data['requestor'] ?? 'N/A';
                 return [
                     'subject' => "[BackBork] Restore Started - {$hostname}",
                     'body' => "Restore job started.\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
-                              "User: {$data['user']}\n" .
+                              "User: {$data['user']} ({$requestor})\n" .
                               "Account: {$data['account']}\n" .
                               "Backup File: {$data['backup_file']}\n" .
                               "Source: {$data['destination']}",
@@ -240,12 +244,13 @@ class BackBorkNotify {
                 ];
                 
             case 'restore_success':
+                $requestor = $data['requestor'] ?? 'N/A';
                 return [
                     'subject' => "[BackBork] Restore Completed - {$hostname}",
                     'body' => "Restore job completed successfully.\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
-                              "User: {$data['user']}\n" .
+                              "User: {$data['user']} ({$requestor})\n" .
                               "Account: {$data['account']}\n" .
                               "Backup File: {$data['backup_file']}",
                     'color' => '#059669',  // Green - success
@@ -253,12 +258,13 @@ class BackBorkNotify {
                 ];
                 
             case 'restore_failure':
+                $requestor = $data['requestor'] ?? 'N/A';
                 return [
                     'subject' => "[BackBork] Restore FAILED - {$hostname}",
                     'body' => "Restore job failed!\n\n" .
                               "Server: {$hostname}\n" .
                               "Time: {$timestamp}\n" .
-                              "User: {$data['user']}\n" .
+                              "User: {$data['user']} ({$requestor})\n" .
                               "Account: {$data['account']}\n" .
                               "Backup File: {$data['backup_file']}\n\n" .
                               "Error: {$data['error']}",

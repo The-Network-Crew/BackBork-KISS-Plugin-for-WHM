@@ -759,6 +759,14 @@ class BackBorkQueueProcessor {
                 continue;
             }
             
+            // Remote destinations (SFTP/FTP) don't support listing or deletion via cpbackup_transport
+            // Pruning must be managed on the remote storage system
+            $destType = strtolower($destination['type'] ?? '');
+            if ($destType === 'sftp' || $destType === 'ftp') {
+                $results[$scheduleId] = ['skipped' => true, 'reason' => 'remote destination (pruning not supported)'];
+                continue;
+            }
+            
             // Get accounts in this schedule (may be dynamic for all_accounts)
             $accounts = $schedule['accounts'] ?? [];
             
@@ -819,8 +827,12 @@ class BackBorkQueueProcessor {
      * If backup count <= retention count, nothing is deleted.
      * This is inherently safe during backup failures.
      * 
+     * NOTE: Only works for Local destinations. Remote destinations (SFTP/FTP)
+     * are skipped at the schedule level since cpbackup_transport doesn't
+     * support listing or deletion.
+     * 
      * @param string $account Account username
-     * @param array $destination Destination configuration
+     * @param array $destination Destination configuration (Local only)
      * @param int $retentionCount Number of backups to keep
      * @param BackBorkDestinationsValidator $validator Validator instance for transport
      * @return array ['count' => int, 'files' => array] Number of backups pruned and list of deleted files
@@ -832,9 +844,8 @@ class BackBorkQueueProcessor {
         // Get appropriate transport for this destination type
         $transport = $validator->getTransportForDestination($destination);
         
-        // List backups at the account's subdirectory
-        $accountPath = $account . '/';
-        $files = $transport->listFiles($accountPath, $destination);
+        // List backups in account subdirectory
+        $files = $transport->listFiles($account . '/', $destination);
         
         if (empty($files)) {
             return ['count' => 0, 'files' => []];
@@ -894,7 +905,7 @@ class BackBorkQueueProcessor {
         // Delete the oldest backups
         foreach ($backupsToDelete as $backup) {
             $filename = $backup['file'];
-            $remotePath = $accountPath . $filename;
+            $remotePath = $account . '/' . $filename;
             $deleteResult = $transport->delete($remotePath, $destination);
             
             if ($deleteResult['success']) {

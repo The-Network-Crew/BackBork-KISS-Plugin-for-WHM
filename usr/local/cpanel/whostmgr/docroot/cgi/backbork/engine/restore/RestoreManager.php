@@ -127,7 +127,8 @@ class BackBorkRestoreManager {
                     'account' => $account,
                     'backup_file' => $backupFile,
                     'destination' => $destinationId,
-                    'user' => $user
+                    'user' => $user,
+                    'requestor' => BackBorkBootstrap::getRequestor()
                 ],
                 $userConfig
             );
@@ -182,7 +183,8 @@ class BackBorkRestoreManager {
                 [
                     'account' => $account,
                     'backup_file' => $backupFile,
-                    'user' => $user
+                    'user' => $user,
+                    'requestor' => BackBorkBootstrap::getRequestor()
                 ],
                 $userConfig
             );
@@ -194,6 +196,7 @@ class BackBorkRestoreManager {
                     'account' => $account,
                     'backup_file' => $backupFile,
                     'user' => $user,
+                    'requestor' => BackBorkBootstrap::getRequestor(),
                     'error' => $result['message']
                 ],
                 $userConfig

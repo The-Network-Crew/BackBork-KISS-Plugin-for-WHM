@@ -258,6 +258,28 @@ class BackBorkBootstrap {
     }
     
     /**
+     * Get the requestor identifier (IP address or 'cron')
+     * 
+     * Returns the client IP address for web requests, or 'cron' for CLI execution.
+     * Handles X-Forwarded-For header for requests behind proxies.
+     * Used for logging and notifications to identify who initiated an operation.
+     * 
+     * @return string IP address or 'cron'
+     */
+    public static function getRequestor() {
+        if (self::isCLI()) {
+            return 'cron';
+        }
+        if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            return explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0];
+        }
+        if (isset($_SERVER['REMOTE_ADDR'])) {
+            return $_SERVER['REMOTE_ADDR'];
+        }
+        return 'unknown';
+    }
+    
+    /**
      * Get the plugin base path
      * 
      * @return string Absolute path to plugin root directory
