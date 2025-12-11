@@ -195,22 +195,18 @@ switch ($action) {
         $config = new BackBorkConfig();
         $data = json_decode(file_get_contents('php://input'), true);
         
-        // Root-only: handle global notify_cron_errors setting
-        if ($isRoot && isset($data['_global_notify_cron_errors'])) {
-            $config->saveGlobalConfig(['notify_cron_errors' => (bool)$data['_global_notify_cron_errors']], $currentUser);
-            unset($data['_global_notify_cron_errors']);
-        }
-        
-        // Root-only: handle global notify_queue_failure setting
-        if ($isRoot && isset($data['_global_notify_queue_failure'])) {
-            $config->saveGlobalConfig(['notify_queue_failure' => (bool)$data['_global_notify_queue_failure']], $currentUser);
-            unset($data['_global_notify_queue_failure']);
-        }
-        
-        // Root-only: handle global notify_pruning setting
-        if ($isRoot && isset($data['_global_notify_pruning'])) {
-            $config->saveGlobalConfig(['notify_pruning' => (bool)$data['_global_notify_pruning']], $currentUser);
-            unset($data['_global_notify_pruning']);
+        // Root-only: handle batched global settings (single save, single log entry)
+        if ($isRoot && isset($data['_global_settings']) && is_array($data['_global_settings'])) {
+            $globalUpdates = [];
+            foreach ($data['_global_settings'] as $key => $value) {
+                if ($value !== null) {
+                    $globalUpdates[$key] = (bool)$value;
+                }
+            }
+            if (!empty($globalUpdates)) {
+                $config->saveGlobalConfig($globalUpdates, $currentUser);
+            }
+            unset($data['_global_settings']);
         }
         
         $result = $config->saveUserConfig($currentUser, $data);

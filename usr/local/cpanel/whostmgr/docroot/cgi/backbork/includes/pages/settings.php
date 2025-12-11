@@ -63,7 +63,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
             <!-- Queue Failure Alerts: Notify root when queue processing fails -->
             <label>
                 <input type="checkbox" id="notify-queue-failure" checked> 
-                <strong>📋 Queue Failure Alerts</strong> — Notify on queue errors!
+                <strong>📋 Queue Failure Alerts</strong> — Notify on any queue errors!
             </label>
             <!-- Pruning Alerts: Notify root when backups are pruned by retention policy -->
             <label>
@@ -72,9 +72,9 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
             </label>
         </div>
         <div class="alert alert-info" style="margin-top: 15px;">
-            Once Debug Logging is enabled here, root user needs to:<br>
-            <code>tail -f /usr/local/cpanel/logs/error_log</code><br>
-            and then re-create the problem conditions etc to investigate.
+            <strong>Debug Logging:</strong> Once enabled, root needs to:<br>
+            <code>tail -f /usr/local/cpanel/logs/error_log</code>
+            &amp; then re-create the problem conditions etc.
         </div>
     </div>
     <?php endif; ?>
@@ -158,7 +158,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
 
         <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">⚙️ System Notifications</h4>
         <div class="checkbox-group">
-            <label><input type="checkbox" id="notify-daily-summary"> 📊 Daily Summary (midnight)</label>
+            <label><input type="checkbox" id="notify-daily-summary"> 📊 Daily Summary</label>
         </div>
     </div>
 

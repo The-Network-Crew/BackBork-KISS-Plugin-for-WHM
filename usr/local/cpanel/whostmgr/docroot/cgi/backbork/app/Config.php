@@ -93,9 +93,12 @@ class BackBorkConfig {
     /**
      * Get global configuration settings
      * 
-     * Global config includes settings that apply server-wide:
-     * - debug_mode: Enable verbose logging
+     * Global config includes settings that apply server-wide (root only):
+     * - debug_mode: Enable verbose logging to error_log
      * - schedules_locked: Prevent resellers from managing schedules
+     * - notify_cron_errors: Alert root when cron health check fails
+     * - notify_queue_failure: Alert root when queue processing fails
+     * - notify_pruning: Alert root when backups are pruned
      * 
      * @return array Merged defaults with saved global config
      */
@@ -370,11 +373,6 @@ class BackBorkConfig {
         // Secure the file
         chmod($configFile, 0600);
         
-        // If root user, sync debug_mode to global config
-        if ($user === 'root' && isset($sanitized['debug_mode'])) {
-            $this->saveGlobalSetting('debug_mode', $sanitized['debug_mode']);
-        }
-        
         // Log config update for audit trail
         if (class_exists('BackBorkLog')) {
             $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
@@ -467,9 +465,6 @@ class BackBorkConfig {
             'default_retention' => 30,      // Days to keep backups
             'default_schedule' => 'daily',  // Default schedule frequency
             
-            // Debug settings
-            'debug_mode' => false,          // Verbose logging
-            
             // Metadata
             'created_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s')
@@ -542,9 +537,7 @@ class BackBorkConfig {
             // Granular notification flags
             'notify_backup_success', 'notify_backup_failure', 'notify_backup_start',
             'notify_restore_success', 'notify_restore_failure', 'notify_restore_start',
-            'notify_daily_summary',
-            // Other booleans
-            'debug_mode'
+            'notify_daily_summary'
         ];
         foreach ($booleans as $key) {
             if (isset($config[$key])) {

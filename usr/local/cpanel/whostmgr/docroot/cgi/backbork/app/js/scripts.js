@@ -267,12 +267,6 @@
             if (data.myb_backup_dir) document.getElementById('myb-backup-dir').value = data.myb_backup_dir;
             if (data.myb_extra_args) document.getElementById('myb-extra-args').value = data.myb_extra_args;
             
-            // Debug mode (advanced settings)
-            const debugModeEl = document.getElementById('debug-mode');
-            if (debugModeEl && data.debug_mode !== undefined) {
-                debugModeEl.checked = data.debug_mode;
-            }
-            
             // Handle global config (root only) or lock status (resellers)
             if (data._global) {
                 // Root user - has full global config
@@ -283,6 +277,12 @@
                 const lockEl = document.getElementById('schedules-locked');
                 if (lockEl) {
                     lockEl.checked = schedulesLocked;
+                }
+                
+                // Set debug mode checkbox (root only - global setting)
+                const debugModeEl = document.getElementById('debug-mode');
+                if (debugModeEl) {
+                    debugModeEl.checked = data._global.debug_mode || false;
                 }
                 
                 // Set cron error alerts checkbox (root only)
@@ -963,9 +963,6 @@
                     // Notification settings - system events (user-level)
                     notify_daily_summary: document.getElementById('notify-daily-summary').checked,
                     
-                    // Debug mode
-                    debug_mode: debugModeEl ? debugModeEl.checked : false,
-                    
                     // Database backup settings
                     db_backup_method: document.getElementById('db-backup-method').value,
                     db_backup_target_dir: document.getElementById('db-backup-target-dir').value,
@@ -1021,19 +1018,14 @@
                     skip_integrationlinks: document.getElementById('skip-integrationlinks').checked
                 };
                 
-                // Root-only: include cron error alerts setting in global config
-                if (cronErrorsEl) {
-                    config._global_notify_cron_errors = cronErrorsEl.checked;
-                }
-                
-                // Root-only: include queue failure alerts setting in global config
-                if (queueFailureEl) {
-                    config._global_notify_queue_failure = queueFailureEl.checked;
-                }
-                
-                // Root-only: include pruning alerts setting in global config
-                if (pruningEl) {
-                    config._global_notify_pruning = pruningEl.checked;
+                // Root-only: batch all global settings together
+                if (debugModeEl || cronErrorsEl || queueFailureEl || pruningEl) {
+                    config._global_settings = {
+                        debug_mode: debugModeEl ? debugModeEl.checked : undefined,
+                        notify_cron_errors: cronErrorsEl ? cronErrorsEl.checked : undefined,
+                        notify_queue_failure: queueFailureEl ? queueFailureEl.checked : undefined,
+                        notify_pruning: pruningEl ? pruningEl.checked : undefined
+                    };
                 }
                 
                 apiCall('save_config', config).then(data => {
