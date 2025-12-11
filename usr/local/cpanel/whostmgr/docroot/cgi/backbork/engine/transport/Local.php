@@ -28,7 +28,7 @@
 /**
  * Local filesystem transport implementation.
  * Handles backup storage on local disk (/backup or custom paths).
- * Backups are organized in account folders: {base_path}/{account}/cpmove-{account}_timestamp.tar.gz
+ * Backups are organized in account folders: {base_path}/{account}/backup-MM.DD.YYYY_HH-MM-SS_{account}.tar.gz
  */
 class BackBorkTransportLocal implements BackBorkTransportInterface {
     
@@ -131,7 +131,7 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     /**
      * List backup files at local destination.
      * When path is empty, lists account directories.
-     * When path is an account name, lists cpmove files in that directory.
+     * When path is an account name, lists backup-* files in that directory.
      * 
      * @param string $remotePath Path to list (relative to destination base)
      * @param array $destination Destination configuration with 'path' key
@@ -157,8 +157,8 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
                 if (strpos($dirname, '.') === 0 || in_array($dirname, ['lost+found', 'tmp', 'temp', 'cpbackup'])) {
                     continue;
                 }
-                // Check if this directory contains any cpmove backups
-                $hasBackups = !empty(glob($dir . '/cpmove-*.tar.gz'));
+                // Check if this directory contains any backups (official format)
+                $hasBackups = !empty(glob($dir . '/backup-*.tar.gz'));
                 if ($hasBackups) {
                     $files[] = [
                         'file' => $dirname,
@@ -172,9 +172,9 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
                 }
             }
             
-            // Also check for flat cpmove files at root (legacy/fallback)
-            $flatFiles = glob($searchPath . '/cpmove-*.tar.gz');
-            foreach ($flatFiles as $file) {
+            // Also check for flat backup files at root (fallback)
+            $flatOfficialFiles = glob($searchPath . '/backup-*.tar.gz');
+            foreach ($flatOfficialFiles as $file) {
                 $files[] = [
                     'file' => basename($file),
                     'path' => $file,
@@ -186,10 +186,11 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
                 ];
             }
         } else {
-            // Path specified - list cpmove files in that directory
+            // Path specified - list backup files in that directory
             if (is_dir($searchPath)) {
-                $found = glob($searchPath . '/cpmove-*.tar.gz');
-                foreach ($found as $file) {
+                // Official format: backup-*.tar.gz
+                $officialFound = glob($searchPath . '/backup-*.tar.gz');
+                foreach ($officialFound as $file) {
                     $files[] = [
                         'file' => basename($file),
                         'path' => $file,
@@ -275,7 +276,7 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
     
     /**
      * Find backup files for a specific account.
-     * Searches the account's dedicated folder first, then legacy locations.
+     * Searches the account's dedicated folder.
      * 
      * @param string $account Account username to search for
      * @param array $destination Destination configuration with 'path' key
@@ -285,22 +286,18 @@ class BackBorkTransportLocal implements BackBorkTransportInterface {
         $backups = [];
         $basePath = $destination['path'] ?? '/backup';
         
-        // Primary location: {base_path}/{account}/ (BackBork structure)
-        // Legacy locations for backward compatibility with existing cPanel backups
+        // Primary location: {base_path}/{account}/
         $searchDirs = [
             $basePath . '/' . $account,              // BackBork: /backup/account/
-            $basePath,                               // Legacy: flat files at /backup/
-            $basePath . '/cpbackup/daily/' . $account,
-            $basePath . '/cpbackup/weekly/' . $account,
-            $basePath . '/cpbackup/monthly/' . $account
+            $basePath,                               // Flat files at /backup/
         ];
         
         // Search each directory for account backups
         foreach ($searchDirs as $dir) {
             if (!is_dir($dir)) continue;
             
-            // Search for cpmove-<account>*.tar.gz files
-            $pattern = $dir . '/cpmove-' . $account . '*.tar.gz';
+            // Search for backup-*_{account}.tar.gz files
+            $pattern = $dir . '/backup-*_' . $account . '.tar.gz';
             $files = glob($pattern);
             
             foreach ($files as $file) {

@@ -219,6 +219,9 @@ class BackBorkRestoreManager {
         $this->writeLog($logFile, "Restoring account using restorepkg...");
         $this->writeLog($logFile, "Source: " . basename($localPath));
         
+        // Pass account name to restore options so restorepkg gets correct --user=
+        $options['account'] = $account;
+        
         $result = $this->executeRestore($localPath, $options, $logFile);
         
         if (!$result['success']) {
@@ -310,22 +313,26 @@ class BackBorkRestoreManager {
     }
     
     /**
-     * Find accompanying DB backup file for a cpmove backup.
+     * Find accompanying DB backup file for a backup.
      * Looks for db-backup-{account}_{timestamp}.tar.gz matching the main backup.
      * 
-     * @param string $backupFile Main backup filename (cpmove-account_timestamp.tar.gz)
+     * @param string $backupFile Main backup filename
      * @param string $destinationId Destination to search
      * @return string|null DB backup filename if found, null otherwise
      */
     private function findDbBackupFile($backupFile, $destinationId) {
         // Extract account and timestamp from main backup filename
-        // Format: cpmove-{account}_{timestamp}.tar.gz
-        if (!preg_match('/cpmove-([^_]+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.tar\.gz$/', basename($backupFile), $matches)) {
+        // Official format: backup-MM.DD.YYYY_HH-MM-SS_USER.tar.gz
+        $basename = basename($backupFile);
+        
+        if (!preg_match('/^backup-(\\d{2})\\.(\\d{2})\\.(\\d{4})_(\\d{2})-(\\d{2})-(\\d{2})_([a-z0-9_]+)\\.tar(\\.gz)?$/i', $basename, $matches)) {
             return null;
         }
         
-        $account = $matches[1];
-        $timestamp = $matches[2];
+        $account = $matches[7];
+        // Convert to db-backup timestamp format: YYYY-MM-DD_HH-MM-SS
+        $timestamp = "{$matches[3]}-{$matches[1]}-{$matches[2]}_{$matches[4]}-{$matches[5]}-{$matches[6]}";
+        
         $dbBackupName = "db-backup-{$account}_{$timestamp}.tar.gz";
         
         // Check if DB backup exists in same directory
@@ -418,18 +425,9 @@ class BackBorkRestoreManager {
      * @return array Result with success status and details
      */
     private function restoreViaRestorepkg($backupPath, $options = [], $existingLogFile = null) {
-        // Build restorepkg command
+        // Build restorepkg command - restorepkg parses account from official filename formats.
+        // We use: backup-{MM.DD.YYYY}_{HH-MM-SS}_{USER}.tar.gz
         $command = self::RESTOREPKG_BIN;
-        
-        // Add force option to overwrite existing account
-        if (!empty($options['force'])) {
-            $command .= ' --force';
-        }
-        
-        // Add optional new username if restoring to different account
-        if (!empty($options['newuser'])) {
-            $command .= ' --newuser=' . escapeshellarg($options['newuser']);
-        }
         
         // Build list of modules to disable based on unchecked options
         // restorepkg uses --disable=Module1,Module2 format
@@ -467,7 +465,10 @@ class BackBorkRestoreManager {
             $command .= ' --disable=' . escapeshellarg(implode(',', $disableModules));
         }
         
-        // Add backup file path
+        // Add --skipaccount to skip account verification (required before path)
+        $command .= ' --skipaccount';
+        
+        // Add backup file path (must be last argument)
         $command .= ' ' . escapeshellarg($backupPath);
         
         // Use existing log file or generate new one
@@ -488,14 +489,13 @@ class BackBorkRestoreManager {
             file_put_contents($logFile, str_repeat('-', 60) . "\n", FILE_APPEND);
         }
         
-        // Log the command being executed (sanitized)
-        BackBorkConfig::debugLog("Executing restore: restorepkg " . basename($backupPath) . 
-            (!empty($disableModules) ? " --disable=" . implode(',', $disableModules) : ''));
-        
         // Log disabled modules if any (append to existing log)
         if (!empty($disableModules) && $existingLogFile) {
             $this->writeLog($logFile, "Disabled modules: " . implode(', ', $disableModules));
-        };
+        }
+        
+        // Log the FULL command being executed for debugging
+        BackBorkConfig::debugLog("RESTOREPKG FULL COMMAND: " . $command);
         
         // Execute command with real-time output capture using proc_open
         $descriptors = [
@@ -707,15 +707,15 @@ class BackBorkRestoreManager {
     
     /**
      * Extract account name from backup filename.
-     * Parses cpmove-style naming convention.
+     * Parses official cPanel backup naming convention:
+     *   - backup-{MM.DD.YYYY}_{HH-MM-SS}_{USER}.tar.gz
      * 
-     * @param string $filename Backup filename (e.g., "cpmove-username_2024-01-15.tar.gz")
+     * @param string $filename Backup filename
      * @return string|null Account name or null if not parseable
      */
     private function extractAccountFromFilename($filename) {
-        // Match cpmove-<account> pattern, stop before timestamp (_YYYY-)
-        // Account names can contain letters, numbers, underscores
-        if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
+        // Official format: backup-MM.DD.YYYY_HH-MM-SS_USER.tar.gz
+        if (preg_match('/^backup-\d{2}\.\d{2}\.\d{4}_\d{2}-\d{2}-\d{2}_([a-z0-9_]+)\.tar(\.gz)?$/i', $filename, $matches)) {
             return $matches[1];
         }
         return null;

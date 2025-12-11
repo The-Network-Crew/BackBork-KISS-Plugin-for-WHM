@@ -1575,19 +1575,11 @@
     
     // Format backup timestamp from filename
     function formatBackupTimestamp(filename) {
-        // Handles formats:
-        // - cpmove-username_2024-01-15_12-30-00.tar.gz (BackBork format)
-        // - cpmove-username.2024-01-15_12-30-00.tar.gz (legacy format)
-        const match = filename.match(/(\d{4}-\d{2}-\d{2})[_\.](\d{2}-\d{2}-\d{2})/);
+        // Official cPanel format: backup-MM.DD.YYYY_HH-MM-SS_USER.tar.gz
+        const match = filename.match(/^backup-(\d{2})\.(\d{2})\.(\d{4})_(\d{2})-(\d{2})-(\d{2})_/);
         if (match) {
-            const date = match[1];
-            const time = match[2].replace(/-/g, ':');
-            return `${date} ${time}`;
-        }
-        // Try just date without time
-        const dateOnly = filename.match(/(\d{4}-\d{2}-\d{2})/);
-        if (dateOnly) {
-            return dateOnly[1];
+            const [, month, day, year, hour, min, sec] = match;
+            return `${year}-${month}-${day} ${hour}:${min}:${sec}`;
         }
         return 'Unknown';
     }

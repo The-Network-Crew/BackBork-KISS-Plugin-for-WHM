@@ -306,9 +306,11 @@ class BackBorkBackupManager {
         
         $this->writeBackupLog($logFile, "      ✓ pkgacct completed successfully");
         
-        // Rename archive with timestamp
+        // Rename archive with timestamp using official cPanel format:
+        // backup-{MM.DD.YYYY}_{HH-MM-SS}_{USER}.tar.gz
         $createdFile = $pkgResult['path'];
-        $backupFile = "cpmove-{$account}_{$timestamp}.tar.gz";
+        $datePart = date('m.d.Y_H-i-s');  // MM.DD.YYYY_HH-MM-SS
+        $backupFile = "backup-{$datePart}_{$account}.tar.gz";
         $finalFile = $tempDir . '/' . $backupFile;
         
         if ($createdFile !== $finalFile) {
@@ -464,7 +466,7 @@ class BackBorkBackupManager {
         $transport = $validator->getTransportForDestination($destination);
         
         // For remote destinations with account filter, list inside account subdirectory
-        // Backups are stored as {account}/cpmove-{account}_timestamp.tar.gz
+        // Backups are stored as {account}/backup-MM.DD.YYYY_HH-MM-SS_{account}.tar.gz
         $listPath = '';
         if (!empty($account)) {
             $listPath = $account;  // List inside account folder
@@ -504,10 +506,10 @@ class BackBorkBackupManager {
         foreach ($files as $file) {
             $filename = $file['file'] ?? '';
             
-            // Extract account name from backup filename (cpmove-USERNAME_...)
-            // Account names can contain letters, numbers, underscores but stop before timestamp (_YYYY-)
+            // Extract account name from backup filename
+            // Official format: backup-MM.DD.YYYY_HH-MM-SS_USERNAME.tar.gz
             $backupAccount = null;
-            if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
+            if (preg_match('/^backup-\\d{2}\\.\\d{2}\\.\\d{4}_\\d{2}-\\d{2}-\\d{2}_([a-z0-9_]+)\\.tar(\\.gz)?$/i', $filename, $matches)) {
                 $backupAccount = strtolower($matches[1]);
             }
             
@@ -530,14 +532,12 @@ class BackBorkBackupManager {
                 $filePath = $backupAccount ? $backupAccount . '/' . $filename : $filename;
             }
             
-            // Extract date from filename (e.g., cpmove-user_2024-01-15_12-30-00.tar.gz)
+            // Extract date from filename (e.g., backup-01.15.2024_12-30-00_user.tar.gz)
             $backupDate = 'Unknown';
-            if (preg_match('/(\d{4}-\d{2}-\d{2})[_\.](\d{2}-\d{2}-\d{2})/', $filename, $dateMatches)) {
-                $date = $dateMatches[1];
-                $time = str_replace('-', ':', $dateMatches[2]);
+            if (preg_match('/backup-(\\d{2})\\.(\\d{2})\\.(\\d{4})_(\\d{2})-(\\d{2})-(\\d{2})_/i', $filename, $dateMatches)) {
+                $date = "{$dateMatches[3]}-{$dateMatches[1]}-{$dateMatches[2]}";
+                $time = "{$dateMatches[4]}:{$dateMatches[5]}:{$dateMatches[6]}";
                 $backupDate = "$date $time";
-            } elseif (preg_match('/(\d{4}-\d{2}-\d{2})/', $filename, $dateMatches)) {
-                $backupDate = $dateMatches[1];
             }
             
             $backups[] = [

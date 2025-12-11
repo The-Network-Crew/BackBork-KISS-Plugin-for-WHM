@@ -11,4 +11,4 @@
  */
 
 // Plugin Version - follows semantic versioning (MAJOR.MINOR.PATCH)
-define('BACKBORK_VERSION', '1.3.2');
+define('BACKBORK_VERSION', '1.3.3');

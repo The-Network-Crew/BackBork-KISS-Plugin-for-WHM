@@ -140,21 +140,18 @@ class BackBorkRetrieval {
         foreach ($files as $file) {
             $filename = $file['file'];
             
-            // Skip non-backup files (must match cpmove-account pattern)
-            // Account names can contain letters, numbers, underscores but stop before timestamp (_YYYY-)
-            if (!preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
-                continue;
-            }
-            
-            $account = $matches[1];
-            
-            // Parse timestamp from filename if present (e.g., _2024-01-15_14-30-00)
+            // Extract account from backup filename
+            // Official format: backup-MM.DD.YYYY_HH-MM-SS_USERNAME.tar.gz
+            $account = null;
             $timestamp = null;
-            if (preg_match('/_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/', $filename, $tsMatch)) {
-                // Convert filename timestamp to readable format
-                $timestamp = str_replace(['_', '-'], [' ', ':'], $tsMatch[1]);
-                $timestamp = substr_replace($timestamp, '-', 10, 1);
-                $timestamp = substr_replace($timestamp, '-', 7, 1);
+            
+            if (preg_match('/^backup-(\\d{2})\\.(\\d{2})\\.(\\d{4})_(\\d{2})-(\\d{2})-(\\d{2})_([a-z0-9_]+)\\.tar(\\.gz)?$/i', $filename, $matches)) {
+                // Official format
+                $account = $matches[7];
+                $timestamp = "{$matches[3]}-{$matches[1]}-{$matches[2]} {$matches[4]}:{$matches[5]}:{$matches[6]}";
+            } else {
+                // Skip non-backup files
+                continue;
             }
             
             // Build path including account folder if we listed inside it
@@ -232,8 +229,8 @@ class BackBorkRetrieval {
             // Check for account-specific subdirectory
             $accountDir = $location . '/' . $account;
             if (is_dir($accountDir)) {
-                // Find all tar.gz files in account directory
-                $files = glob($accountDir . '/*.tar.gz');
+                // Find all backup-*_{account}.tar.gz files in account directory
+                $files = glob($accountDir . '/backup-*_' . $account . '.tar.gz');
                 foreach ($files as $file) {
                     $backups[] = [
                         'file' => basename($file),
@@ -247,8 +244,8 @@ class BackBorkRetrieval {
                 }
             }
             
-            // Also check for cpmove files directly in location directory
-            $pattern = $location . '/cpmove-' . $account . '*';
+            // Also check for backup files directly in location directory
+            $pattern = $location . '/backup-*_' . $account . '.tar.gz';
             $files = glob($pattern);
             foreach ($files as $file) {
                 if (is_file($file)) {
