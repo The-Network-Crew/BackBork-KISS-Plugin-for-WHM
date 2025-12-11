@@ -141,7 +141,8 @@ class BackBorkRetrieval {
             $filename = $file['file'];
             
             // Skip non-backup files (must match cpmove-account pattern)
-            if (!preg_match('/cpmove-([a-z0-9_]+)/i', $filename, $matches)) {
+            // Account names can contain letters, numbers, underscores but stop before timestamp (_YYYY-)
+            if (!preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
                 continue;
             }
             

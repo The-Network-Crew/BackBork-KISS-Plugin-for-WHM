@@ -399,18 +399,21 @@
             
             // Queued jobs
             if (data.queued && data.queued.length > 0) {
-                queueTbody.innerHTML = data.queued.map(job => `
+                queueTbody.innerHTML = data.queued.map(job => {
+                    // Format accounts: each in <code> with space between
+                    const accountsHtml = job.accounts.map(acc => `<code>${acc}</code>`).join(' ');
+                    return `
                     <tr>
-                        <td>${job.id}</td>
-                        <td>${job.type}</td>
-                        <td>${job.accounts.join(', ')}</td>
+                        <td><code>${job.id}</code></td>
+                        <td><strong>${job.type}</strong></td>
+                        <td>${accountsHtml}</td>
                         <td>${job.destination_name || job.destination}</td>
-                        <td>${job.created_at}</td>
+                        <td><span class="log-timestamp">${job.created_at}</span></td>
                         <td>
                             <button class="btn btn-sm btn-danger" onclick="removeFromQueue('${job.id}')">Remove</button>
                         </td>
                     </tr>
-                `).join('');
+                `}).join('');
             } else {
                 queueTbody.innerHTML = '<tr><td colspan="6">No queued jobs.</td></tr>';
             }

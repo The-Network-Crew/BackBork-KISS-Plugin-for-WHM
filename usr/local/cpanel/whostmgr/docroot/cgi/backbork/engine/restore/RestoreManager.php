@@ -569,8 +569,9 @@ class BackBorkRestoreManager {
      * @return string|null Account name or null if not parseable
      */
     private function extractAccountFromFilename($filename) {
-        // Match cpmove-<account> pattern
-        if (preg_match('/cpmove-([a-z0-9_]+)/i', $filename, $matches)) {
+        // Match cpmove-<account> pattern, stop before timestamp (_YYYY-)
+        // Account names can contain letters, numbers, underscores
+        if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
             return $matches[1];
         }
         return null;

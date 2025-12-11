@@ -384,8 +384,9 @@ class BackBorkBackupManager {
             $filename = $file['file'] ?? '';
             
             // Extract account name from backup filename (cpmove-USERNAME_...)
+            // Account names can contain letters, numbers, underscores but stop before timestamp (_YYYY-)
             $backupAccount = null;
-            if (preg_match('/cpmove-([a-z0-9_]+)/i', $filename, $matches)) {
+            if (preg_match('/cpmove-([a-z0-9_]+?)(?:_\d{4}-\d{2}-\d{2}|\.tar|$)/i', $filename, $matches)) {
                 $backupAccount = strtolower($matches[1]);
             }
             

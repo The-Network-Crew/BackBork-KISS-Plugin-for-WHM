@@ -29,6 +29,26 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Check if BackBork is installed
+WHM_CGI_DIR="/usr/local/cpanel/whostmgr/docroot/cgi"
+if [ ! -d "${WHM_CGI_DIR}/backbork" ]; then
+    echo -e "${RED}Error: BackBork KISS does not appear to be installed.${NC}"
+    echo -e "${YELLOW}The plugin directory was not found at: ${WHM_CGI_DIR}/backbork${NC}"
+    echo ""
+    echo -e "${YELLOW}Press 'f' within 3 seconds to force cleanup anyway...${NC}"
+    
+    # Read with 3-second timeout
+    read -t 3 -n 1 force_key
+    echo ""  # Newline after keypress
+    
+    if [ "$force_key" != "f" ] && [ "$force_key" != "F" ]; then
+        echo -e "${BLUE}Exiting. No changes made.${NC}"
+        exit 1
+    fi
+    
+    echo -e "${YELLOW}Force mode enabled - will clean up any remaining components...${NC}"
+fi
+
 # Function to prompt for y/n with strict validation
 prompt_yn() {
     local prompt="$1"
@@ -67,8 +87,7 @@ fi
 echo ""
 echo -e "${YELLOW}Starting uninstallation...${NC}"
 
-# Define paths
-WHM_CGI_DIR="/usr/local/cpanel/whostmgr/docroot/cgi"
+# Define remaining paths (WHM_CGI_DIR already defined above)
 APPS_DIR="/var/cpanel/apps"
 CONFIG_DIR="/usr/local/cpanel/3rdparty/backbork"
 ICON_DIR="/usr/local/cpanel/whostmgr/docroot/addon_plugins"
