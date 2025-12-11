@@ -151,6 +151,7 @@ class BackBorkBackupManager {
         
         $totalAccounts = count($accounts);
         $currentAccount = 0;
+        $accountsWithDuration = [];  // Track account names with run-time for logging
         
         // Process each account sequentially
         foreach ($accounts as $account) {
@@ -158,16 +159,24 @@ class BackBorkBackupManager {
             $this->writeBackupLog($logFile, "[STEP 3/5] Processing account {$currentAccount}/{$totalAccounts}: {$account}");
             $this->writeBackupLog($logFile, str_repeat('-', 40));
             
+            // Track start time for this account
+            $accountStartTime = microtime(true);
+            
             // Backup single account (pkgacct + transport)
             $result = $this->backupSingleAccount($account, $destination, $userConfig, $user, $logFile);
             $results[$account] = $result;
             
+            // Calculate duration for this account
+            $accountDuration = microtime(true) - $accountStartTime;
+            $durationStr = $this->formatDuration($accountDuration);
+            $accountsWithDuration[] = "{$account} ({$durationStr})";
+            
             // Track failures for summary
             if (!$result['success']) {
                 $errors[] = $account . ': ' . $result['message'];
-                $this->writeBackupLog($logFile, "  ✗ FAILED: " . $result['message']);
+                $this->writeBackupLog($logFile, "  ✗ FAILED: " . $result['message'] . " ({$durationStr})");
             } else {
-                $this->writeBackupLog($logFile, "  ✓ SUCCESS: " . $result['message']);
+                $this->writeBackupLog($logFile, "  ✓ SUCCESS: " . $result['message'] . " ({$durationStr})");
             }
             
             // Build log message for this account
@@ -183,9 +192,18 @@ class BackBorkBackupManager {
         $this->writeBackupLog($logFile, "  → Failed: " . count($errors) . "/{$totalAccounts}");
         $this->writeBackupLog($logFile, "");
         
-        // Log the complete operation with all account results
+        // Log the complete operation with all account results (including per-account duration)
+        // Type includes _local or _remote suffix based on destination
+        $logType = ($destType === 'local') ? 'backup_local' : 'backup_remote';
+        
+        // Build log message with destination info as first line
+        $destInfo = ($destType === 'local') 
+            ? 'Destination: ' . ($destination['name'] ?? 'Local')
+            : 'Host: ' . ($destination['host'] ?? $destination['name'] ?? 'Remote');
+        $logMessage = $destInfo . "\n" . implode("\n", $logMessages);
+        
         BackBorkConfig::debugLog('createBackup: Logging operation for user=' . $user . ' success=' . ($success ? 'true' : 'false') . ' accounts=' . implode(',', $accounts));
-        $this->logOperation($user, 'backup', $accounts, $success, implode("\n", $logMessages));
+        $this->logOperation($user, $logType, $accountsWithDuration, $success, $logMessage);
         
         // Check notification preferences (new keys with legacy fallback)
         $notifySuccess = !empty($userConfig['notify_backup_success']) || (!isset($userConfig['notify_backup_success']) && !empty($userConfig['notify_success']));
@@ -665,6 +683,32 @@ class BackBorkBackupManager {
         $bytes /= pow(1024, $pow);
         
         return round($bytes, 2) . ' ' . $units[$pow];
+    }
+    
+    /**
+     * Format duration in human-readable format.
+     * Shows seconds for short durations, minutes+seconds for medium,
+     * or hours+minutes for long operations.
+     * 
+     * @param float $seconds Duration in seconds (can be fractional)
+     * @return string Formatted duration (e.g., "45s", "2m 30s", "1h 15m")
+     */
+    private function formatDuration($seconds) {
+        $seconds = (int) round($seconds);
+        
+        if ($seconds < 60) {
+            return "{$seconds}s";
+        }
+        
+        if ($seconds < 3600) {
+            $minutes = floor($seconds / 60);
+            $secs = $seconds % 60;
+            return $secs > 0 ? "{$minutes}m {$secs}s" : "{$minutes}m";
+        }
+        
+        $hours = floor($seconds / 3600);
+        $minutes = floor(($seconds % 3600) / 60);
+        return $minutes > 0 ? "{$hours}h {$minutes}m" : "{$hours}h";
     }
     
     /**

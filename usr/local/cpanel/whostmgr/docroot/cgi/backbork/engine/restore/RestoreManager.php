@@ -78,6 +78,9 @@ class BackBorkRestoreManager {
      * @return array Result with success status and details
      */
     public function restoreAccount($backupFile, $destinationId, $options, $user) {
+        // Track start time for duration logging
+        $restoreStartTime = microtime(true);
+        
         // Load user-specific configuration for notifications
         $userConfig = $this->config->getUserConfig($user);
         
@@ -122,7 +125,10 @@ class BackBorkRestoreManager {
         // Check retrieval success
         if (!$retrieveResult['success']) {
             $this->writeLog($logFile, "ERROR: Retrieval failed - " . ($retrieveResult['message'] ?? 'Unknown error'));
-            $this->logOperation($user, 'restore', [$account], false, 'Retrieval failed: ' . ($retrieveResult['message'] ?? 'Unknown error'));
+            $durationStr = $this->formatDuration(microtime(true) - $restoreStartTime);
+            $logType = $isRemote ? 'restore_remote' : 'restore_local';
+            $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
+            $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], false, $destInfo . "\nRetrieval failed: " . ($retrieveResult['message'] ?? 'Unknown error'));
             $retrieveResult['restore_id'] = $restoreId;
             $retrieveResult['log_file'] = $logFile;
             return $retrieveResult;
@@ -156,7 +162,10 @@ class BackBorkRestoreManager {
         if (!$verification['valid']) {
             $this->writeLog($logFile, "ERROR: Invalid backup file - " . $verification['message']);
             $this->cleanupFilesWithLog($filesToCleanup, $logFile);
-            $this->logOperation($user, 'restore', [$account], false, 'Invalid backup file: ' . $verification['message']);
+            $durationStr = $this->formatDuration(microtime(true) - $restoreStartTime);
+            $logType = $isRemote ? 'restore_remote' : 'restore_local';
+            $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
+            $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], false, $destInfo . "\nInvalid backup file: " . $verification['message']);
             return ['success' => false, 'message' => 'Invalid backup file: ' . $verification['message'], 'restore_id' => $restoreId, 'log_file' => $logFile];
         }
         
@@ -227,7 +236,10 @@ class BackBorkRestoreManager {
         if (!$result['success']) {
             $this->writeLog($logFile, "ERROR: Restore failed - " . $result['message']);
             $this->cleanupFilesWithLog($filesToCleanup, $logFile);
-            $this->logOperation($user, 'restore', [$account], false, $result['message']);
+            $durationStr = $this->formatDuration(microtime(true) - $restoreStartTime);
+            $logType = $isRemote ? 'restore_remote' : 'restore_local';
+            $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
+            $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], false, $destInfo . "\n" . $result['message']);
             $result['restore_id'] = $restoreId;
             $result['log_file'] = $logFile;
             return $result;
@@ -263,8 +275,12 @@ class BackBorkRestoreManager {
         // ====================================================================
         $this->cleanupFilesWithLog($filesToCleanup, $logFile);
         
-        // Log the operation to centralized log
-        $this->logOperation($user, 'restore', [$account], $result['success'], $result['message']);
+        // Log the operation to centralized log (with duration)
+        // Type includes _local or _remote suffix based on destination
+        $durationStr = $this->formatDuration(microtime(true) - $restoreStartTime);
+        $logType = $isRemote ? 'restore_remote' : 'restore_local';
+        $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
+        $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], $result['success'], $destInfo . "\n" . $result['message']);
         
         // ====================================================================
         // STEP 8: Send completion notification
@@ -772,5 +788,31 @@ class BackBorkRestoreManager {
         $bytes /= pow(1024, $pow);
         
         return round($bytes, 2) . ' ' . $units[$pow];
+    }
+    
+    /**
+     * Format duration in human-readable format.
+     * Shows seconds for short durations, minutes+seconds for medium,
+     * or hours+minutes for long operations.
+     * 
+     * @param float $seconds Duration in seconds (can be fractional)
+     * @return string Formatted duration (e.g., "45s", "2m 30s", "1h 15m")
+     */
+    private function formatDuration($seconds) {
+        $seconds = (int) round($seconds);
+        
+        if ($seconds < 60) {
+            return "{$seconds}s";
+        }
+        
+        if ($seconds < 3600) {
+            $minutes = floor($seconds / 60);
+            $secs = $seconds % 60;
+            return $secs > 0 ? "{$minutes}m {$secs}s" : "{$minutes}m";
+        }
+        
+        $hours = floor($seconds / 3600);
+        $minutes = floor(($seconds % 3600) / 60);
+        return $minutes > 0 ? "{$hours}h {$minutes}m" : "{$hours}h";
     }
 }

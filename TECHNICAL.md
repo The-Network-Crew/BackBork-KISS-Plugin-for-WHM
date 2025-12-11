@@ -834,7 +834,7 @@ All require WHM authentication.
 | `?action=test_notification` | POST | Test alert |
 
 > [!NOTE]
-> All operations (backups, restores, queue and schedule changes, configuration updates) are audited to `/usr/local/cpanel/3rdparty/backbork/logs/operations.log`. Log entries include the requesting user and requestor IP (or 'cron' for scheduled tasks).
+> All operations (backups, restores, queue and schedule changes, configuration updates) are audited to `/usr/local/cpanel/3rdparty/backbork/logs/operations.log`. Log entries include the requesting user, requestor IP (or 'cron' for scheduled tasks), operation type with destination suffix (`backup_local`/`backup_remote`/`restore_local`/`restore_remote`), per-account runtimes (e.g., `user1 (45s)`), and the destination name or remote hostname.
 
 ---
 

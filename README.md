@@ -40,7 +40,7 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 | 🛡️ **Cron Monitoring** | Self-checks with alerts if cron goes walkabout |
 | 🔌 **JSON API** | Full REST-style API for automation and scripting |
 | 🤖 **CLI Access** | Command-line API for Ansible/automation |
-| 📝 **Audit Logs** | Complete operation history with user/IP tracking |
+| 📝 **Audit Logs** | Complete operation history with user/IP tracking, per-account runtimes |
 | ⚙️ **22+ Skip Options** | Fine-tune exactly what gets backed up |
 
 ---
@@ -107,6 +107,10 @@ Browse backup files by account and delete individual backups when needed. Select
 ### 📝 Logs Tab
 
 Every backup, restore, and config change is logged with timestamps, users, and IP addresses. Handy for auditing and troubleshooting.
+
+- **Operation Type**: Shows `backup_local`, `backup_remote`, `restore_local`, or `restore_remote`
+- **Per-Account Runtime**: Each account shows its individual duration (e.g., `user1 (45s), user2 (1m 23s)`)
+- **Destination Info**: Details include the destination name (local) or hostname (remote)
 
 ![BackBork Logs Interface](_images/BackBork-Logs.png)
 

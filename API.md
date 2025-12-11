@@ -37,7 +37,17 @@ require_once('/usr/local/cpanel/php/WHM.php');
 
 ## 🗄️ Audit Logging
 
-BackBork writes operations and events to an audit log for operations tracing. Each entry includes a timestamp, requesting user, event type, affected items, success/failure, message, and the requestor (IP or 'cron'/'local'). The default log location is:
+BackBork writes operations and events to an audit log for operations tracing. Each entry includes:
+
+- **Timestamp** — When the operation occurred
+- **User** — Who initiated it (root/reseller)
+- **Type** — Operation type with destination suffix (`backup_local`, `backup_remote`, `restore_local`, `restore_remote`)
+- **Accounts** — Affected accounts with individual runtimes (e.g., `user1 (45s), user2 (1m 23s)`)
+- **Success/Failure** — Operation outcome
+- **Message** — Details including destination name (local) or hostname (remote) as the first line
+- **Requestor** — IP address or 'cron'/'local'
+
+The default log location is:
 
 ```
 /usr/local/cpanel/3rdparty/backbork/logs/operations.log
