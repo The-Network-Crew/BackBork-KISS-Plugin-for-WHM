@@ -32,11 +32,14 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 | 🌐 **All Accounts Mode** | Dynamic schedules that auto-include new accounts |
 | 🗂️ **Data Management** | Browse and delete backup files by account |
 | 🔒 **Schedule Lock** | Root can prevent resellers from managing schedules |
+| 🗑️ **Retention Pruning** | Auto-delete old backups (local and remote) |
+| 👁️ **Destination Visibility** | Root can hide destinations from resellers |
 | 📧 **Notifications** | Email and Slack alerts when things happen |
 | 🔥 **Hot DB Backups** | MariaDB-backup support (no table locks!) |
 | 👥 **Multi-User** | Root and resellers, each with their own settings |
 | 🛡️ **Cron Monitoring** | Self-checks with alerts if cron goes walkabout |
 | 🔌 **JSON API** | Full REST-style API for automation and scripting |
+| 🤖 **CLI Access** | Command-line API for Ansible/automation |
 | 📝 **Audit Logs** | Complete operation history with user/IP tracking |
 | ⚙️ **22+ Skip Options** | Fine-tune exactly what gets backed up |
 
@@ -239,6 +242,7 @@ Each user gets **separate configuration** — resellers can't peek at root's set
 
 BackBork exposes a full JSON API for automation and scripting. Every action you can do in the GUI, you can do via API.
 
+**HTTP (remote access):**
 ```bash
 # Example: List accounts
 curl -k -H "Authorization: whm root:YOUR_API_TOKEN" \
@@ -250,6 +254,16 @@ curl -k -X POST \
   -H "Content-Type: application/json" \
   -d '{"accounts":["myuser"],"destination":"SFTP_Backup","schedule":"once"}' \
   "https://server:2087/cgi/backbork/api/router.php?action=queue_backup"
+```
+
+**CLI (local automation):**
+```bash
+# No auth needed — you're already root
+php /usr/local/cpanel/whostmgr/docroot/cgi/backbork/api/router.php --action=get_accounts
+
+# With JSON data
+php router.php --action=create_schedule \
+  --data='{"all_accounts":true,"destination":"SFTP_Backup","schedule":"daily","retention":30}'
 ```
 
 | Endpoint | What It Does |
@@ -282,6 +296,7 @@ Removes plugin files, cron entries, and WHM registration. **Your backups stay ri
 |----------|-------------|
 | 🔧 [TECHNICAL.md](TECHNICAL.md) | Architecture, file structure, and internals |
 | 🔌 [API.md](API.md) | Full API reference for automation |
+| 🤖 [ORCH.md](ORCH.md) | Ansible playbooks and orchestration examples |
 | ⏰ [CRON.md](CRON.md) | Cron configuration and troubleshooting |
 | 🐛 [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/issues) | Report bugs or request features |
 | 📜 [LICENSE](LICENSE) | GPL v3 |
