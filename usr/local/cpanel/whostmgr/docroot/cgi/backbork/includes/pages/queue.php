@@ -58,9 +58,9 @@
             <table class="backbork-table">
                 <thead>
                     <tr>
+                        <th>Account</th>
                         <th>Job ID</th>
                         <th>Type</th>
-                        <th>Account</th>
                         <th>Started</th>
                         <th>Status</th>
                         <th>Progress</th>
@@ -85,9 +85,9 @@
             <table class="backbork-table">
                 <thead>
                     <tr>
+                        <th>Accounts</th>
                         <th>Job ID</th>
                         <th>Type</th>
-                        <th>Accounts</th>
                         <th>Destination</th>
                         <th>Queued At</th>
                         <th>Actions</th>

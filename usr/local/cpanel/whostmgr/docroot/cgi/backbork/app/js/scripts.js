@@ -139,6 +139,8 @@
     function loadAccounts() {
         apiCall('get_accounts', {}, 'GET').then(data => {
             accounts = data || [];
+            // Sort accounts alphabetically by username (case-insensitive)
+            accounts.sort((a, b) => a.user.toLowerCase().localeCompare(b.user.toLowerCase()));
             renderAccountLists();
         }).catch(err => {
             console.error('Failed to load accounts', err);
@@ -404,9 +406,9 @@
                     const accountsHtml = job.accounts.map(acc => `<code>${acc}</code>`).join(' ');
                     return `
                     <tr>
+                        <td>${accountsHtml}</td>
                         <td><code>${job.id}</code></td>
                         <td><strong>${job.type}</strong></td>
-                        <td>${accountsHtml}</td>
                         <td>${job.destination_name || job.destination}</td>
                         <td><span class="log-timestamp">${job.created_at}</span></td>
                         <td>
@@ -422,10 +424,10 @@
             if (data.running && data.running.length > 0) {
                 runningTbody.innerHTML = data.running.map(job => `
                     <tr>
-                        <td>${job.id}</td>
-                        <td>${job.type}</td>
-                        <td>${job.account}</td>
-                        <td>${job.started_at}</td>
+                        <td><code>${job.account}</code></td>
+                        <td><code>${job.id}</code></td>
+                        <td><strong>${job.type}</strong></td>
+                        <td><span class="log-timestamp">${job.started_at}</span></td>
                         <td><span class="status-badge status-running">${job.status}</span></td>
                         <td>
                             <div class="progress-bar" style="width: 100px;">

@@ -797,7 +797,8 @@
     border: 1px solid var(--gray-700);
     border-radius: 6px;
     padding: 14px;
-    max-height: 220px;
+    min-height: 150px;
+    max-height: 500px;
     overflow-y: auto;
     color: var(--terminal-text);
 }
@@ -917,7 +918,8 @@
     min-width: 140px;
 }
 
-.log-cell-meta .log-timestamp {
+/* Timestamp styling - works standalone or within log-cell-meta */
+.log-timestamp {
     font-family: 'SF Mono', Monaco, monospace;
     font-size: 11px;
     color: var(--text-secondary);
