@@ -18,6 +18,10 @@
     let schedulesLocked = false;
     let currentScheduleViewUser = 'all';
 
+    // Track if there are running jobs for faster refresh
+    let hasRunningJobs = false;
+    let fastRefreshInterval = null;
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         initTabs();
@@ -29,8 +33,8 @@
         initEventListeners();
         checkForUpdates();
         
-        // Refresh status every 30 seconds
-        setInterval(refreshStatus, 30000);
+        // Refresh status every 15 seconds (normal mode)
+        setInterval(refreshStatus, 15000);
         
         // Initial status monitor update
         refreshStatus();
@@ -38,9 +42,6 @@
     
     // Check for plugin updates against GitHub
     function checkForUpdates() {
-        // Skip if user dismissed the alert this session
-        if (sessionStorage.getItem('backbork_update_dismissed')) return;
-        
         apiCall('check_update', {}, 'GET').then(data => {
             if (data.success && data.update_available && data.remote_version) {
                 const alertEl = document.getElementById('update-alert');
@@ -55,11 +56,10 @@
         });
     }
     
-    // Dismiss update alert for this session
+    // Dismiss update alert for current page view only (will return on reload)
     window.dismissUpdateAlert = function() {
         const alertEl = document.getElementById('update-alert');
         if (alertEl) alertEl.style.display = 'none';
-        sessionStorage.setItem('backbork_update_dismissed', '1');
     };
 
     // Tab Navigation
@@ -797,6 +797,19 @@
         // Also refresh status monitor
         apiCall('get_queue', {}, 'GET').then(data => {
             updateStatusMonitor(data);
+            
+            // Check if there are running jobs - enable fast refresh if so
+            const runningCount = (data.running?.length || 0) + (data.restores?.length || 0);
+            if (runningCount > 0 && !fastRefreshInterval) {
+                // Start fast refresh (every 5 seconds)
+                hasRunningJobs = true;
+                fastRefreshInterval = setInterval(refreshStatus, 5000);
+            } else if (runningCount === 0 && fastRefreshInterval) {
+                // Stop fast refresh when no running jobs
+                hasRunningJobs = false;
+                clearInterval(fastRefreshInterval);
+                fastRefreshInterval = null;
+            }
         }).catch(err => { console.error('Failed to refresh status', err); updateStatusMonitor({ queued: [], running: [], restores: [] }); });
     }
 
@@ -1191,23 +1204,33 @@
                 btnProcessQueue.disabled = true;
                 btnProcessQueue.innerHTML = '<span class="loading-spinner-small"></span> Processing...';
                 
+                // Immediately start fast refresh to show progress
+                if (!fastRefreshInterval) {
+                    fastRefreshInterval = setInterval(refreshStatus, 2000);
+                }
+                // Trigger immediate refresh to show queue moving to running
+                setTimeout(() => { loadQueue(); refreshStatus(); }, 500);
+                
                 apiCall('process_queue', {}, 'POST').then(data => {
+                    // Refresh queue to show final state
+                    loadQueue();
+                    refreshStatus();
+                    
                     if (data.success) {
-                        // Show results in a nicer way
-                        const scheduled = data.scheduled?.scheduled || {};
+                        // Show brief success toast/message
                         const processed = data.processed?.processed || 0;
                         const failed = data.processed?.failed || 0;
+                        const skipped = data.processed?.skipped || false;
                         
-                        let msg = 'Queue processed successfully!';
-                        if (Object.keys(scheduled).length > 0) {
-                            msg += '\n\nScheduled jobs queued: ' + Object.keys(scheduled).length;
+                        if (skipped) {
+                            // Queue was already being processed
+                            console.log('Queue processor already running');
+                        } else if (processed > 0 || failed > 0) {
+                            alert('Queue processed: ' + processed + ' succeeded, ' + failed + ' failed');
+                        } else {
+                            // No jobs were in queue
+                            console.log('No jobs to process');
                         }
-                        if (processed > 0 || failed > 0) {
-                            msg += '\n\nProcessed: ' + processed + ', Failed: ' + failed;
-                        }
-                        
-                        alert(msg);
-                        loadQueue();
                     } else {
                         alert('Failed to process queue: ' + (data.message || 'Unknown error'));
                     }

@@ -76,7 +76,7 @@ if (!defined('BACKBORK_VERSION')) {
             <span><?php echo htmlspecialchars($currentUser); ?></span>
             <?php if ($isRoot): ?>
                 <!-- Root users get full access to all features -->
-                <span class="status-badge status-success">Root</span>
+                <span class="status-badge status-success">ADMIN ☠️</span>
             <?php else: ?>
                 <!-- Resellers have ACL-restricted access to their accounts only -->
                 <span class="status-badge status-pending">Reseller</span>
