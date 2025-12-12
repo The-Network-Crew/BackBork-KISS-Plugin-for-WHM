@@ -77,6 +77,7 @@ try {
             $destinationId = isset($jobData['destination']) ? $jobData['destination'] : '';
             $backupId = $jobData['backup_id'];
             $user = isset($jobData['user']) ? $jobData['user'] : 'root';
+            $jobRequestor = isset($jobData['requestor']) ? $jobData['requestor'] : 'cron';
             
             if (empty($accounts)) {
                 runner_log("ERROR: No accounts specified");
@@ -84,6 +85,7 @@ try {
             }
             
             $backupManager = new BackBorkBackupManager();
+            $backupManager->setRequestor($jobRequestor);
             $backupManager->createBackupWithId($accounts, $destinationId, $user, $backupId);
             
             runner_log("Backup job completed");
@@ -97,6 +99,7 @@ try {
             $restoreId = $jobData['restore_id'];
             $user = isset($jobData['user']) ? $jobData['user'] : 'root';
             $options = isset($jobData['options']) ? $jobData['options'] : [];
+            $jobRequestor = isset($jobData['requestor']) ? $jobData['requestor'] : 'cron';
             
             if (empty($backupFile)) {
                 runner_log("ERROR: No backup file specified");
@@ -104,6 +107,7 @@ try {
             }
             
             $restoreManager = new BackBorkRestoreManager();
+            $restoreManager->setRequestor($jobRequestor);
             $restoreManager->restoreAccountWithId($backupFile, $destinationId, $options, $user, $restoreId);
             
             runner_log("Restore job completed");

@@ -33,11 +33,11 @@
 ======================================================================== -->
 <div id="panel-data" class="backbork-panel">
     <div class="backbork-card">
-        <h3><i class="fas fa-database"></i> Data Management</h3>
+        <h3>Data Management</h3>
         
         <!-- Destination selector -->
         <div class="form-group" style="margin-bottom: 20px;">
-            <label for="data-destination">Source</label>
+            <label for="data-destination">Backup Storage</label>
             <select id="data-destination" class="destination-select" onchange="loadDataAccounts()">
                 <option value="">Loading destinations...</option>
             </select>

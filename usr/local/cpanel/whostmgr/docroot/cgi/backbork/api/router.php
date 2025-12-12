@@ -348,6 +348,7 @@ switch ($action) {
             'accounts' => array_values($validAccounts),
             'destination' => $destinationId,
             'user' => $currentUser,
+            'requestor' => $requestor,
             'created_at' => date('Y-m-d H:i:s')
         ];
         file_put_contents($jobFile, json_encode($jobData));
@@ -608,6 +609,7 @@ switch ($action) {
             'destination' => $destinationId,
             'options' => $restoreOptions,
             'user' => $currentUser,
+            'requestor' => $requestor,
             'created_at' => date('Y-m-d H:i:s')
         ];
         file_put_contents($jobFile, json_encode($jobData));

@@ -39,7 +39,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
          These controls are only visible to root user and affect all users
     ================================================================ -->
     <div class="backbork-card">
-        <h3>🔐 Global Settings (Root Only)</h3>
+        <h3>Administrator Settings</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
             Where relevant, these settings apply globally. For instance, Resellers cannot Unlock Schedules nor view WHM error_log file.
         </p>
@@ -78,7 +78,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     <?php endif; ?>
 
     <div class="backbork-card">
-        <h3>Cron Status</h3>
+        <h3>Cron Status (Health Check)</h3>
         <div id="cron-status-container">
             <div class="loading-spinner"></div> Checking cron configuration...
         </div>
@@ -103,7 +103,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
          Control which destinations resellers can see and use
     ================================================================ -->
     <div class="backbork-card">
-        <h3>🔐 Destination Visibility (Root Only)</h3>
+        <h3>Destination Visibility</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
             Mark destinations as root-only to hide them from resellers. This does not affect backups already in progress.
         </p>
@@ -163,14 +163,14 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     </div>
 
     <div class="backbork-card">
-        <h3>Database Server</h3>
+        <h3>SQL Server & Backup Tooling</h3>
         <div id="db-server-info">
             <div class="loading-spinner"></div> Detecting database server...
         </div>
     </div>
 
     <div class="backbork-card">
-        <h3>Database Backup Settings</h3>
+        <h3>Backup Settings (SQL Database)</h3>
         
         <div class="form-row">
             <div class="form-group">
@@ -230,7 +230,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     </div>
 
     <div class="backbork-card">
-        <h3>Backup Settings (pkgacct options)</h3>
+        <h3>Backup Settings (pkgacct Options)</h3>
         
         <div class="form-row">
             <?php if ($settingsIsRoot): ?>

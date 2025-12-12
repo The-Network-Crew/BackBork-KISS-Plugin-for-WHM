@@ -44,7 +44,7 @@ if (!defined('BACKBORK_VERSION')) {
     <div class="backbork-header">
         <div class="backbork-header-left">
             <!-- Plugin branding with dynamic version from version.php -->
-            <h1><span class="shield-icon">🛡️</span> BackBork KISS <span style="font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 8px;"><code>v<?php echo BACKBORK_VERSION; ?>-<strong>BETA</strong></code></span></h1>
+            <h1><span class="shield-icon">💋</span> BackBork KISS <span style="font-size: 12px; font-weight: 400; color: var(--text-muted); margin-left: 8px;"><code>v<?php echo BACKBORK_VERSION; ?>-<strong>BETA</strong></code></span></h1>
         </div>
         
         <!-- Status Monitor: Real-time job counts updated via JavaScript polling -->

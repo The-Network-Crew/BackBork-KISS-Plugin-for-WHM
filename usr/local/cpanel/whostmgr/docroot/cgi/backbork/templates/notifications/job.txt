@@ -1,0 +1,11 @@
+{{EMOJI}} {{TYPE}} {{STATUS}}!
+
+Server: {{HOSTNAME}}
+Time: {{TIMESTAMP}}
+User: {{USER}}
+
+{{DETAILS}}
+{{ERRORS}}
+---
+BackBork KISS - Disaster Recovery Plugin
+https://backbork.com

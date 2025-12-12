@@ -50,6 +50,9 @@ class BackBorkRestoreManager {
     /** @var BackBorkRetrieval Backup file retrieval service */
     private $retrieval;
     
+    /** @var string|null Override requestor (IP or 'cron') - set by runner.php for manual jobs */
+    private $requestorOverride = null;
+    
     /**
      * Constructor - Initialize all dependencies.
      * Sets up configuration, notification, and retrieval services.
@@ -247,7 +250,7 @@ class BackBorkRestoreManager {
                     'backup_file' => $backupFile,
                     'destination' => $destinationId,
                     'user' => $user,
-                    'requestor' => BackBorkBootstrap::getRequestor()
+                    'requestor' => $this->getRequestor()
                 ],
                 $userConfig
             );
@@ -329,7 +332,7 @@ class BackBorkRestoreManager {
                     'account' => $account,
                     'backup_file' => $backupFile,
                     'user' => $user,
-                    'requestor' => BackBorkBootstrap::getRequestor()
+                    'requestor' => $this->getRequestor()
                 ],
                 $userConfig
             );
@@ -342,7 +345,7 @@ class BackBorkRestoreManager {
                     'account' => $account,
                     'backup_file' => $backupFile,
                     'user' => $user,
-                    'requestor' => BackBorkBootstrap::getRequestor(),
+                    'requestor' => $this->getRequestor(),
                     'error' => $result['message']
                 ],
                 $userConfig
@@ -769,6 +772,36 @@ class BackBorkRestoreManager {
     }
     
     /**
+     * Set the requestor identifier (used by runner.php to pass original IP)
+     * 
+     * @param string $requestor IP address or identifier
+     */
+    public function setRequestor($requestor) {
+        $this->requestorOverride = $requestor;
+    }
+    
+    /**
+     * Get requestor information (IP or 'cron' for CLI).
+     * Uses override if set (for background jobs started from GUI).
+     * 
+     * @return string Requestor identifier
+     */
+    private function getRequestor() {
+        // Use override if set (from runner.php for manual jobs)
+        if ($this->requestorOverride !== null) {
+            return $this->requestorOverride;
+        }
+        
+        if (php_sapi_name() === 'cli') {
+            return 'cron';
+        }
+        
+        return isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
+            ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
+            : ($_SERVER['REMOTE_ADDR'] ?? 'local');
+    }
+    
+    /**
      * Log a restore operation to centralized log system.
      * Delegates to BackBorkLog for consistent logging format.
      * 
@@ -781,11 +814,11 @@ class BackBorkRestoreManager {
     private function logOperation($user, $type, $accounts, $success, $message) {
         // Only log if BackBorkLog class is available
         if (class_exists('BackBorkLog')) {
-            // Determine requestor IP address or 'cron' for CLI execution
-            $requestor = isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] : (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : (BackBorkBootstrap::isCLI() ? 'cron' : 'local'));
+            // Use override if set, otherwise detect requestor
+            $logRequestor = $this->getRequestor();
             
             // Log event through centralized logging
-            BackBorkLog::logEvent($user, $type === 'restore' ? 'restore' : $type, $accounts, $success, $message, $requestor);
+            BackBorkLog::logEvent($user, $type === 'restore' ? 'restore' : $type, $accounts, $success, $message, $logRequestor);
         }
     }
     

@@ -88,11 +88,11 @@ $scheduleIsRoot = $scheduleAcl->isRoot();     // Check if current user is root
                 <div class="select-all-container" style="display: flex; gap: 24px; flex-wrap: wrap;">
                     <!-- All Accounts: Dynamic mode - includes all accessible accounts at runtime -->
                     <label style="font-weight: 600; color: var(--primary);">
-                        <input type="checkbox" id="schedule-all-accounts"> 🌐 All Accounts (dynamic)
+                        <input type="checkbox" id="schedule-all-accounts"> 🌐 All Accounts (Dynamic)
                     </label>
                     <!-- Select All Listed: Static mode - selects currently visible accounts -->
                     <label>
-                        <input type="checkbox" id="select-all-schedule"> Select All Listed
+                        <input type="checkbox" id="select-all-schedule"> Select All (Listed)
                     </label>
                 </div>
                 <div id="schedule-accounts-container">
