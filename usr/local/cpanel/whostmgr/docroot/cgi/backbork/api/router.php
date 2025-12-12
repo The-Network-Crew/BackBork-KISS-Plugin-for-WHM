@@ -279,6 +279,36 @@ switch ($action) {
         echo json_encode($result);
         break;
     
+    /**
+     * Check for plugin updates
+     * Compares local version against GitHub main branch
+     */
+    case 'check_update':
+        $localVersion = BACKBORK_VERSION;
+        $remoteVersion = null;
+        $updateAvailable = false;
+        
+        // Fetch remote version from GitHub (with timeout)
+        $ctx = stream_context_create(['http' => ['timeout' => 5]]);
+        $remoteUrl = 'https://raw.githubusercontent.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/refs/heads/main/version';
+        $remoteContent = @file_get_contents($remoteUrl, false, $ctx);
+        
+        if ($remoteContent !== false) {
+            $remoteVersion = trim($remoteContent);
+            // Compare versions (simple string compare works for semver)
+            if (version_compare($remoteVersion, $localVersion, '>')) {
+                $updateAvailable = true;
+            }
+        }
+        
+        echo json_encode([
+            'success' => true,
+            'local_version' => $localVersion,
+            'remote_version' => $remoteVersion,
+            'update_available' => $updateAvailable
+        ]);
+        break;
+    
     // ========================================================================
     // BACKUP OPERATIONS
     // ========================================================================
@@ -918,6 +948,9 @@ switch ($action) {
             break;
         }
         
+        // Clear file stat cache to get fresh file size (critical for real-time tailing)
+        clearstatcache(true, $logFile);
+        
         // Read log content from offset
         $content = '';
         $fileSize = filesize($logFile);
@@ -930,8 +963,11 @@ switch ($action) {
         }
         
         // Check if restore is complete (look for completion markers)
-        $isComplete = (strpos(file_get_contents($logFile), 'RESTORE COMPLETED SUCCESSFULLY') !== false) ||
-                      (strpos(file_get_contents($logFile), 'RESTORE FAILED') !== false);
+        // Re-read file for completion check to ensure we have latest content
+        clearstatcache(true, $logFile);
+        $fullContent = file_get_contents($logFile);
+        $isComplete = (strpos($fullContent, 'RESTORE COMPLETED SUCCESSFULLY') !== false) ||
+                      (strpos($fullContent, 'RESTORE FAILED') !== false);
         
         echo json_encode([
             'success' => true,
@@ -962,6 +998,9 @@ switch ($action) {
             break;
         }
         
+        // Clear file stat cache to get fresh file size (critical for real-time tailing)
+        clearstatcache(true, $logFile);
+        
         // Read log content from offset
         $content = '';
         $fileSize = filesize($logFile);
@@ -974,8 +1013,11 @@ switch ($action) {
         }
         
         // Check if backup is complete (look for completion markers)
-        $isComplete = (strpos(file_get_contents($logFile), 'BACKUP COMPLETED SUCCESSFULLY') !== false) ||
-                      (strpos(file_get_contents($logFile), 'BACKUP FAILED') !== false);
+        // Re-read file for completion check to ensure we have latest content
+        clearstatcache(true, $logFile);
+        $fullContent = file_get_contents($logFile);
+        $isComplete = (strpos($fullContent, 'BACKUP COMPLETED SUCCESSFULLY') !== false) ||
+                      (strpos($fullContent, 'BACKUP FAILED') !== false);
         
         echo json_encode([
             'success' => true,

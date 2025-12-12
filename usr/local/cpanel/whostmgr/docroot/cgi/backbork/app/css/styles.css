@@ -155,7 +155,7 @@
     color: rgba(253, 224, 71, 0.8);
 }
 .status-item.resellers .value {
-    color: rgba(168, 162, 255, 0.8);
+    color: rgba(255, 182, 193, 0.9);
 }
 
 /* User Info Badge - Compact */
@@ -175,6 +175,45 @@
 .user-info strong {
     color: var(--text-primary);
     font-weight: 600;
+}
+
+/* Update Alert Bar */
+.update-alert {
+    background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.update-alert strong {
+    color: var(--text-primary);
+}
+.update-alert a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+    margin-left: auto;
+}
+.update-alert a:hover {
+    text-decoration: underline;
+}
+.update-alert-dismiss {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 14px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.update-alert-dismiss:hover {
+    opacity: 1;
 }
 
 /* Navigation Tabs - Slightly shorter */

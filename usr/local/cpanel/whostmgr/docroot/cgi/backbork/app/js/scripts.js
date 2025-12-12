@@ -27,6 +27,7 @@
         loadQueue();
         loadLogs();
         initEventListeners();
+        checkForUpdates();
         
         // Refresh status every 30 seconds
         setInterval(refreshStatus, 30000);
@@ -34,6 +35,32 @@
         // Initial status monitor update
         refreshStatus();
     });
+    
+    // Check for plugin updates against GitHub
+    function checkForUpdates() {
+        // Skip if user dismissed the alert this session
+        if (sessionStorage.getItem('backbork_update_dismissed')) return;
+        
+        apiCall('check_update', {}, 'GET').then(data => {
+            if (data.success && data.update_available && data.remote_version) {
+                const alertEl = document.getElementById('update-alert');
+                const versionEl = document.getElementById('update-version');
+                if (alertEl && versionEl) {
+                    versionEl.textContent = data.remote_version;
+                    alertEl.style.display = 'flex';
+                }
+            }
+        }).catch(err => {
+            console.log('Update check failed:', err);
+        });
+    }
+    
+    // Dismiss update alert for this session
+    window.dismissUpdateAlert = function() {
+        const alertEl = document.getElementById('update-alert');
+        if (alertEl) alertEl.style.display = 'none';
+        sessionStorage.setItem('backbork_update_dismissed', '1');
+    };
 
     // Tab Navigation
     function initTabs() {

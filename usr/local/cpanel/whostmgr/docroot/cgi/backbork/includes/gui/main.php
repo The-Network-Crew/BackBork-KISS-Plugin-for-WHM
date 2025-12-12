@@ -98,6 +98,13 @@ if (!defined('BACKBORK_VERSION')) {
         <div class="backbork-tab" data-tab="settings">⚙️ Settings</div>
     </div>
 
+    <!-- Update Alert: Shows when a newer version is available on GitHub -->
+    <div id="update-alert" class="update-alert" style="display: none;">
+        <span>🚀 <strong>Update available!</strong> Version <span id="update-version"></span> is available on GitHub.</span>
+        <a href="https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM" target="_blank">View Release →</a>
+        <button type="button" class="update-alert-dismiss" onclick="dismissUpdateAlert()" title="Dismiss">✕</button>
+    </div>
+
     <!-- ================================================================
          CONTENT PANELS: Each page is included as a separate template
          Only one panel is visible at a time (controlled by CSS/JS)
