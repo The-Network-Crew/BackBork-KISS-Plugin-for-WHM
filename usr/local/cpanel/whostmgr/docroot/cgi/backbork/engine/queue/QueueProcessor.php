@@ -827,8 +827,14 @@ class BackBorkQueueProcessor {
                 if (count($prunedFiles) > 10) {
                     $fileList .= ' ... and ' . (count($prunedFiles) - 10) . ' more';
                 }
-                $logMsg = "Pruned {$schedulePruned} backup(s) for schedule '{$scheduleName}' (retention: {$retentionCount}). Deleted: {$fileList}";
-                BackBorkLog::logEvent($scheduleUser, 'prune', $prunedFiles, true, $logMsg, 'cron');
+                // Include destination info (name for local, hostname for remote)
+                $destType = strtolower($destination['type'] ?? 'local');
+                $destInfo = ($destType === 'local') 
+                    ? 'Destination: ' . ($destination['name'] ?? 'Local')
+                    : 'Host: ' . ($destination['host'] ?? $destination['name'] ?? 'Remote');
+                $logMsg = "{$destInfo}\nPruned {$schedulePruned} backup(s) for schedule '{$scheduleName}' (retention: {$retentionCount}). Deleted: {$fileList}";
+                $logType = ($destType === 'local') ? 'prune_local' : 'prune_remote';
+                BackBorkLog::logEvent($scheduleUser, $logType, $prunedFiles, true, $logMsg, 'cron');
             }
         }
         

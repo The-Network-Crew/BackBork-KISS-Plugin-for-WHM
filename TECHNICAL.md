@@ -644,9 +644,13 @@ The UI polls this file in real-time using `GET ?action=get_restore_log&restore_i
 {
   "notify_email": "admin@example.com",
   "slack_webhook": "https://hooks.slack.com/services/...",
-  "notify_success": true,
-  "notify_failure": true,
-  "notify_start": false,
+  "notify_backup_success": true,
+  "notify_backup_failure": true,
+  "notify_backup_start": false,
+  "notify_restore_success": true,
+  "notify_restore_failure": true,
+  "notify_restore_start": false,
+  "notify_daily_summary": false,
   "compression_option": "compress",
   "compression_level": "5",
   "temp_directory": "/home/backbork_tmp",
@@ -694,9 +698,13 @@ The UI polls this file in real-time using `GET ?action=get_restore_log&restore_i
 | **Notifications** |||
 | `notify_email` | string | Email address for notifications |
 | `slack_webhook` | string | Slack incoming webhook URL |
-| `notify_success` | bool | Send notification on successful backup |
-| `notify_failure` | bool | Send notification on failed backup |
-| `notify_start` | bool | Send notification when backup starts |
+| `notify_backup_success` | bool | Send notification on successful backup |
+| `notify_backup_failure` | bool | Send notification on failed backup |
+| `notify_backup_start` | bool | Send notification when backup starts |
+| `notify_restore_success` | bool | Send notification on successful restore |
+| `notify_restore_failure` | bool | Send notification on failed restore |
+| `notify_restore_start` | bool | Send notification when restore starts |
+| `notify_daily_summary` | bool | Send daily summary email at midnight |
 | **Compression** |||
 | `compression_option` | string | `compress` or `nocompress` |
 | `compression_level` | string | Gzip level 1-9 (default: 5) |

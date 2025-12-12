@@ -792,9 +792,13 @@ Gets the current user's configuration.
   "config": {
     "notify_email": "admin@example.com",
     "slack_webhook": "https://hooks.slack.com/services/...",
-    "notify_success": true,
-    "notify_failure": true,
-    "notify_start": false,
+    "notify_backup_success": true,
+    "notify_backup_failure": true,
+    "notify_backup_start": false,
+    "notify_restore_success": true,
+    "notify_restore_failure": true,
+    "notify_restore_start": false,
+    "notify_daily_summary": false,
     "compression_option": "compress",
     "compression_level": "5",
     "temp_directory": "/home/backbork_tmp",
@@ -847,7 +851,7 @@ Saves user configuration. You can send partial updates — only the fields you i
 ```json
 {
   "notify_email": "admin@example.com",
-  "notify_failure": true
+  "notify_backup_failure": true
 }
 ```
 
@@ -856,9 +860,13 @@ Saves user configuration. You can send partial updates — only the fields you i
 {
   "notify_email": "admin@example.com",
   "slack_webhook": "https://hooks.slack.com/services/...",
-  "notify_success": true,
-  "notify_failure": true,
-  "notify_start": false,
+  "notify_backup_success": true,
+  "notify_backup_failure": true,
+  "notify_backup_start": false,
+  "notify_restore_success": true,
+  "notify_restore_failure": true,
+  "notify_restore_start": false,
+  "notify_daily_summary": false,
   "compression_option": "compress",
   "compression_level": "5",
   "temp_directory": "/home/backbork_tmp",

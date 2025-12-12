@@ -128,8 +128,8 @@ class BackBorkBackupManager {
         $errors = [];
         $logMessages = [];
         
-        // Send start notification if user has enabled it (check new key, fallback to legacy)
-        $notifyStart = !empty($userConfig['notify_backup_start']) || (!isset($userConfig['notify_backup_start']) && !empty($userConfig['notify_start']));
+        // Send start notification if user has enabled it
+        $notifyStart = !empty($userConfig['notify_backup_start']);
         if ($notifyStart) {
             $this->writeBackupLog($logFile, "[STEP 2/5] Sending start notification...");
             $this->notify->sendNotification(
@@ -205,9 +205,9 @@ class BackBorkBackupManager {
         BackBorkConfig::debugLog('createBackup: Logging operation for user=' . $user . ' success=' . ($success ? 'true' : 'false') . ' accounts=' . implode(',', $accounts));
         $this->logOperation($user, $logType, $accountsWithDuration, $success, $logMessage);
         
-        // Check notification preferences (new keys with legacy fallback)
-        $notifySuccess = !empty($userConfig['notify_backup_success']) || (!isset($userConfig['notify_backup_success']) && !empty($userConfig['notify_success']));
-        $notifyFailure = !empty($userConfig['notify_backup_failure']) || (!isset($userConfig['notify_backup_failure']) && !empty($userConfig['notify_failure']));
+        // Check notification preferences
+        $notifySuccess = !empty($userConfig['notify_backup_success']);
+        $notifyFailure = !empty($userConfig['notify_backup_failure']);
         
         // Send completion notifications
         $this->writeBackupLog($logFile, "[STEP 5/5] Sending completion notification...");

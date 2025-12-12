@@ -205,8 +205,8 @@ class BackBorkRestoreManager {
         // STEP 4: Send start notification
         // ====================================================================
         
-        // Send start notification if user has enabled it (new key with legacy fallback)
-        $notifyStart = !empty($userConfig['notify_restore_start']) || (!isset($userConfig['notify_restore_start']) && !empty($userConfig['notify_start']));
+        // Send start notification if user has enabled it
+        $notifyStart = !empty($userConfig['notify_restore_start']);
         if ($notifyStart) {
             $this->writeLog($logFile, "Sending restore start notification...");
             $this->notify->sendNotification(
@@ -285,9 +285,9 @@ class BackBorkRestoreManager {
         // ====================================================================
         // STEP 8: Send completion notification
         // ====================================================================
-        // Check notification preferences (new keys with legacy fallback)
-        $notifySuccess = !empty($userConfig['notify_restore_success']) || (!isset($userConfig['notify_restore_success']) && !empty($userConfig['notify_success']));
-        $notifyFailure = !empty($userConfig['notify_restore_failure']) || (!isset($userConfig['notify_restore_failure']) && !empty($userConfig['notify_failure']));
+        // Check notification preferences
+        $notifySuccess = !empty($userConfig['notify_restore_success']);
+        $notifyFailure = !empty($userConfig['notify_restore_failure']);
         
         // Send success notification if restore succeeded and notifications enabled
         if ($result['success'] && $notifySuccess) {

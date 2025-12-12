@@ -206,24 +206,24 @@
             if (data.notify_email) document.getElementById('notify-email').value = data.notify_email;
             if (data.slack_webhook) document.getElementById('slack-webhook').value = data.slack_webhook;
             
-            // Notification settings - backup events (with legacy fallback)
+            // Notification settings - backup events
             const notifyBackupSuccess = document.getElementById('notify-backup-success');
             if (notifyBackupSuccess) {
                 notifyBackupSuccess.checked = data.notify_backup_success !== undefined 
                     ? data.notify_backup_success 
-                    : (data.notify_success !== undefined ? data.notify_success : true);
+                    : true;
             }
             const notifyBackupFailure = document.getElementById('notify-backup-failure');
             if (notifyBackupFailure) {
                 notifyBackupFailure.checked = data.notify_backup_failure !== undefined 
                     ? data.notify_backup_failure 
-                    : (data.notify_failure !== undefined ? data.notify_failure : true);
+                    : true;
             }
             const notifyBackupStart = document.getElementById('notify-backup-start');
             if (notifyBackupStart) {
                 notifyBackupStart.checked = data.notify_backup_start !== undefined 
                     ? data.notify_backup_start 
-                    : (data.notify_start !== undefined ? data.notify_start : false);
+                    : false;
             }
             
             // Notification settings - restore events
