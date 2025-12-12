@@ -307,8 +307,8 @@ class BackBorkBackupManager {
     
     /**
      * Backup a single cPanel account.
-     * Executes pkgacct (with schema-only if using hot DB backup), optionally runs
-     * mariadb-backup/mysqlbackup, and transports all files to destination.
+     * For LOCAL: pkgacct writes directly to destination, rename in place.
+     * For REMOTE: pkgacct to temp, upload, delete temp immediately.
      * 
      * @param string $account Account username to backup
      * @param array $destination Destination configuration (type, path, credentials, etc.)
@@ -318,40 +318,52 @@ class BackBorkBackupManager {
      * @return array Result with success status and message
      */
     private function backupSingleAccount($account, $destination, $userConfig, $user, $logFile = null) {
-        // Generate timestamp for unique backup filename
-        $timestamp = date('Y-m-d_H-i-s');
+        $destType = strtolower($destination['type'] ?? 'local');
+        $isLocal = ($destType === 'local');
         
-        // Use user-configured temp directory or default
-        $tempDir = isset($userConfig['temp_directory']) ? $userConfig['temp_directory'] : self::TEMP_DIR;
-        
-        $this->writeBackupLog($logFile, "  [3a] Preparing backup environment...");
-        $this->writeBackupLog($logFile, "      → Timestamp: {$timestamp}");
-        $this->writeBackupLog($logFile, "      → Temp directory: {$tempDir}");
-        
-        // Ensure temp directory exists with secure permissions
-        if (!is_dir($tempDir)) {
-            if (!mkdir($tempDir, 0700, true)) {
-                return [
-                    'success' => false,
-                    'message' => "Failed to create temp directory: {$tempDir}"
-                ];
+        // Determine working directory:
+        // - LOCAL: Write directly to destination/{account}/
+        // - REMOTE: Use temp directory, then upload and delete
+        if ($isLocal) {
+            $destPath = rtrim($destination['path'] ?? '/backup', '/');
+            $workDir = $destPath . '/' . $account;
+            
+            // Ensure account directory exists
+            if (!is_dir($workDir)) {
+                if (!mkdir($workDir, 0700, true)) {
+                    return [
+                        'success' => false,
+                        'message' => "Failed to create backup directory: {$workDir}"
+                    ];
+                }
+            }
+        } else {
+            // Remote: use temp directory
+            $workDir = isset($userConfig['temp_directory']) ? $userConfig['temp_directory'] : self::TEMP_DIR;
+            
+            // Ensure temp directory exists
+            if (!is_dir($workDir)) {
+                if (!mkdir($workDir, 0700, true)) {
+                    return [
+                        'success' => false,
+                        'message' => "Failed to create temp directory: {$workDir}"
+                    ];
+                }
             }
         }
         
-        // Track files to upload and cleanup
-        $filesToUpload = [];
-        $filesToCleanup = [];
+        $this->writeBackupLog($logFile, "  [3a] Preparing backup environment...");
+        $this->writeBackupLog($logFile, "      → Destination type: {$destType}");
+        $this->writeBackupLog($logFile, "      → Working directory: {$workDir}");
         
         // ====================================================================
-        // STEP 1: Execute pkgacct
-        // If using mariadb-backup/mysqlbackup, pkgacct uses --dbbackup=schema
+        // STEP 1: Execute pkgacct (creates cpmove-{account}.tar.gz)
         // ====================================================================
         $this->writeBackupLog($logFile, "  [3b] Running pkgacct for {$account}...");
         $this->writeBackupLog($logFile, "      ────────────────────────────────────────────────────────");
-        $this->writeBackupLog($logFile, "      pkgacct output:");
         
         // Pass logFile to stream pkgacct output in real-time
-        $pkgResult = $this->pkgacct->execute($account, $tempDir, $userConfig, $logFile);
+        $pkgResult = $this->pkgacct->execute($account, $workDir, $userConfig, $logFile);
         
         $this->writeBackupLog($logFile, "      ────────────────────────────────────────────────────────");
         
@@ -362,55 +374,64 @@ class BackBorkBackupManager {
         
         $this->writeBackupLog($logFile, "      ✓ pkgacct completed successfully");
         
-        // Rename archive with timestamp using official cPanel format:
-        // backup-{MM.DD.YYYY}_{HH-MM-SS}_{USER}.tar.gz
+        // Get the created file path
         $createdFile = $pkgResult['path'];
-        $datePart = date('m.d.Y_H-i-s');  // MM.DD.YYYY_HH-MM-SS
-        $backupFile = "backup-{$datePart}_{$account}.tar.gz";
-        $finalFile = $tempDir . '/' . $backupFile;
         
-        if ($createdFile !== $finalFile) {
-            $this->writeBackupLog($logFile, "      → Renaming archive to: {$backupFile}");
-            if (!rename($createdFile, $finalFile)) {
-                $this->writeBackupLog($logFile, "      ✗ Failed to rename backup file");
-                return [
-                    'success' => false,
-                    'message' => "Failed to rename backup file"
-                ];
+        // Verify we have a file (pkgacct should always create .tar.gz with default options)
+        if (!is_file($createdFile)) {
+            $this->writeBackupLog($logFile, "      ✗ pkgacct did not create expected file: {$createdFile}");
+            // Clean up any directory it may have created
+            if (is_dir($createdFile)) {
+                $this->recursiveDelete($createdFile);
             }
+            return [
+                'success' => false,
+                'message' => "pkgacct did not create a valid archive file"
+            ];
         }
         
-        $fileSize = file_exists($finalFile) ? $this->formatSize(filesize($finalFile)) : 'Unknown';
-        $this->writeBackupLog($logFile, "      → Archive size: {$fileSize}");
+        // Rename to official format: backup-{MM.DD.YYYY}_{HH-MM-SS}_{USER}.tar.gz
+        $datePart = date('m.d.Y_H-i-s');
+        $backupFile = "backup-{$datePart}_{$account}.tar.gz";
+        $finalFile = $workDir . '/' . $backupFile;
         
-        $filesToUpload[] = ['local' => $finalFile, 'remote' => $account . '/' . $backupFile];
-        $filesToCleanup[] = $finalFile;
+        $this->writeBackupLog($logFile, "      → Renaming to: {$backupFile}");
+        if (!rename($createdFile, $finalFile)) {
+            $this->writeBackupLog($logFile, "      ✗ Failed to rename backup file");
+            unlink($createdFile);  // Clean up
+            return [
+                'success' => false,
+                'message' => "Failed to rename backup file"
+            ];
+        }
+        
+        $fileSize = filesize($finalFile);
+        $this->writeBackupLog($logFile, "      → Archive size: " . $this->formatSize($fileSize));
+        
+        // Track files for remote upload/cleanup
+        $filesToUpload = [['local' => $finalFile, 'remote' => $account . '/' . $backupFile]];
+        $filesToCleanup = [$finalFile];
         
         // ====================================================================
         // STEP 2: Hot database backup (if configured)
-        // Creates separate DB archive with data (schema already in pkgacct)
         // ====================================================================
         $dbMethod = $userConfig['db_backup_method'] ?? 'pkgacct';
         
         if (in_array($dbMethod, ['mariadb-backup', 'mysqlbackup'], true)) {
             $this->writeBackupLog($logFile, "  [3c] Running hot database backup ({$dbMethod})...");
-            BackBorkConfig::debugLog("Running {$dbMethod} for account: {$account}");
             
-            $dbResult = $this->dbBackup->backupDatabases($account, $tempDir, $userConfig);
+            $dbResult = $this->dbBackup->backupDatabases($account, $workDir, $userConfig);
             
             if (!$dbResult['success'] && empty($dbResult['skipped'])) {
-                // DB backup failed - clean up and report
                 $this->writeBackupLog($logFile, "      ✗ Database backup failed: " . ($dbResult['message'] ?? 'Unknown error'));
-                foreach ($filesToCleanup as $file) {
-                    if (file_exists($file)) unlink($file);
-                }
+                // Clean up main backup file
+                if (file_exists($finalFile)) unlink($finalFile);
                 return [
                     'success' => false,
                     'message' => "Database backup failed: " . ($dbResult['message'] ?? 'Unknown error')
                 ];
             }
             
-            // Add DB archive to upload list if created
             if (!empty($dbResult['archive']) && file_exists($dbResult['archive'])) {
                 $dbArchiveName = basename($dbResult['archive']);
                 $dbSize = $this->formatSize(filesize($dbResult['archive']));
@@ -425,48 +446,50 @@ class BackBorkBackupManager {
         }
         
         // ====================================================================
-        // STEP 3: Upload all files to destination
+        // STEP 3: For REMOTE only - Upload then delete local
+        // For LOCAL - files are already in place, nothing more to do
         // ====================================================================
-        $this->writeBackupLog($logFile, "  [3d] Uploading to destination...");
+        if ($isLocal) {
+            $this->writeBackupLog($logFile, "  [3d] Local backup complete - files in place");
+            return [
+                'success' => true,
+                'message' => 'Backup completed successfully'
+            ];
+        }
+        
+        // Remote destination - upload files
+        $this->writeBackupLog($logFile, "  [3d] Uploading to remote destination...");
         $validator = new BackBorkDestinationsValidator();
         $transport = $validator->getTransportForDestination($destination);
         
         $allSuccess = true;
         $messages = [];
-        $destType = strtolower($destination['type'] ?? 'local');
         
         foreach ($filesToUpload as $file) {
             $filename = basename($file['local']);
             $this->writeBackupLog($logFile, "      → Uploading: {$filename}");
             $result = $transport->upload($file['local'], $file['remote'], $destination);
+            
             if (!$result['success']) {
                 $allSuccess = false;
-                $messages[] = basename($file['remote']) . ': ' . ($result['message'] ?? 'Upload failed');
+                $messages[] = $filename . ': ' . ($result['message'] ?? 'Upload failed');
                 $this->writeBackupLog($logFile, "        ✗ Upload failed: " . ($result['message'] ?? 'Unknown error'));
             } else {
                 $this->writeBackupLog($logFile, "        ✓ Upload successful");
-                // Log transport output for debugging
-                if (!empty($result['transport_output'])) {
-                    $this->writeBackupLog($logFile, "        → Transport: " . $result['transport_output']);
-                }
             }
         }
         
         // ====================================================================
-        // STEP 4: Cleanup temp files
+        // STEP 4: Delete temp files IMMEDIATELY after upload (before next account)
         // ====================================================================
         $this->writeBackupLog($logFile, "  [3e] Cleaning up temporary files...");
-        if ($allSuccess) {
-            foreach ($filesToCleanup as $file) {
-                if (file_exists($file)) {
-                    $this->writeBackupLog($logFile, "      → Removing: " . basename($file));
-                    unlink($file);
-                }
+        foreach ($filesToCleanup as $file) {
+            if (file_exists($file)) {
+                $this->writeBackupLog($logFile, "      → Removing: " . basename($file));
+                unlink($file);
             }
-            $this->writeBackupLog($logFile, "      ✓ Cleanup complete");
-        } else {
-            $this->writeBackupLog($logFile, "      → Skipping cleanup (upload failed - keeping local files)");
         }
+        $this->writeBackupLog($logFile, "      ✓ Cleanup complete");
         
         return [
             'success' => $allSuccess,
@@ -778,5 +801,29 @@ class BackBorkBackupManager {
         return isset($_SERVER['HTTP_X_FORWARDED_FOR']) 
             ? explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0] 
             : ($_SERVER['REMOTE_ADDR'] ?? 'local');
+    }
+    
+    /**
+     * Recursively delete a directory and its contents.
+     * Used to clean up cpmove directories after compression.
+     * 
+     * @param string $dir Directory path to delete
+     * @return bool True on success
+     */
+    private function recursiveDelete($dir) {
+        if (!is_dir($dir)) {
+            return false;
+        }
+        
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            if (is_dir($path)) {
+                $this->recursiveDelete($path);
+            } else {
+                unlink($path);
+            }
+        }
+        return rmdir($dir);
     }
 }

@@ -320,6 +320,7 @@ class BackBorkPkgacct {
     /**
      * Find the backup file created by pkgacct.
      * Searches for standard cpmove-*.tar.gz naming convention.
+     * If --nocompress was used, compresses the directory to tar.gz.
      * 
      * @param string $account Account username
      * @param string $workDir Working directory to search
@@ -328,20 +329,64 @@ class BackBorkPkgacct {
     private function findCreatedBackup($account, $workDir) {
         // Check for standard naming: cpmove-<account>.tar.gz
         $standardName = 'cpmove-' . $account . '.tar.gz';
-        if (file_exists($workDir . '/' . $standardName)) {
+        if (file_exists($workDir . '/' . $standardName) && is_file($workDir . '/' . $standardName)) {
             return $standardName;
         }
         
-        // Try pattern matching for non-standard names (e.g., with timestamps)
-        $pattern = $workDir . '/cpmove-' . $account . '*';
+        // Check for uncompressed cpmove directory (happens with --nocompress option)
+        // Compress it to tar.gz before returning
+        $cpmoveDir = $workDir . '/cpmove-' . $account;
+        if (is_dir($cpmoveDir)) {
+            $tarFile = $workDir . '/' . $standardName;
+            $tarCmd = 'cd ' . escapeshellarg($workDir) . ' && tar -czf ' . escapeshellarg($standardName) . ' ' . escapeshellarg('cpmove-' . $account) . ' 2>&1';
+            $output = [];
+            $returnCode = 0;
+            exec($tarCmd, $output, $returnCode);
+            
+            if ($returnCode === 0 && file_exists($tarFile) && is_file($tarFile)) {
+                // Remove the directory after successful compression
+                $this->recursiveDelete($cpmoveDir);
+                return $standardName;
+            }
+        }
+        
+        // Try pattern matching for tar.gz files with non-standard names
+        $pattern = $workDir . '/cpmove-' . $account . '*.tar.gz';
         $files = glob($pattern);
         
-        // Return first matching file if found
+        // Return first matching tar.gz file if found
         if (!empty($files)) {
-            return basename($files[0]);
+            foreach ($files as $file) {
+                if (is_file($file)) {
+                    return basename($file);
+                }
+            }
         }
         
         return null;
+    }
+    
+    /**
+     * Recursively delete a directory and its contents.
+     * 
+     * @param string $dir Directory path to delete
+     * @return bool True on success
+     */
+    private function recursiveDelete($dir) {
+        if (!is_dir($dir)) {
+            return false;
+        }
+        
+        $files = array_diff(scandir($dir), ['.', '..']);
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            if (is_dir($path)) {
+                $this->recursiveDelete($path);
+            } else {
+                unlink($path);
+            }
+        }
+        return rmdir($dir);
     }
     
     /**
