@@ -73,7 +73,6 @@
     margin: 0;
     padding: 16px 24px;
     background: var(--bg-page);
-    min-height: 100vh;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
@@ -413,6 +412,21 @@
     background: var(--bg-card);
     border-radius: 10px;
     border: 1px solid var(--border-light);
+}
+
+/* Job Cell - Type over Job ID */
+.job-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.job-cell strong {
+    text-transform: capitalize;
+    color: var(--text-primary);
+}
+.job-cell code {
+    font-size: 11px;
+    color: var(--text-muted);
 }
 
 .btn-process-queue {

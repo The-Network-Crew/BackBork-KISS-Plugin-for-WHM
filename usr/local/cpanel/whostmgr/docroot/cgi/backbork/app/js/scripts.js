@@ -451,8 +451,7 @@
                     return `
                     <tr>
                         <td>${accountsHtml}</td>
-                        <td><code>${job.id}</code></td>
-                        <td><strong>${job.type}</strong></td>
+                        <td><div class="job-cell"><strong>${job.type}</strong><code>${job.id}</code></div></td>
                         <td>${job.destination_name || job.destination}</td>
                         <td><span class="log-timestamp">${job.created_at}</span></td>
                         <td>
@@ -461,7 +460,7 @@
                     </tr>
                 `}).join('');
             } else {
-                queueTbody.innerHTML = '<tr><td colspan="6">No queued jobs.</td></tr>';
+                queueTbody.innerHTML = '<tr><td colspan="5">No queued jobs.</td></tr>';
             }
             
             // Running jobs
@@ -478,8 +477,7 @@
                     return `
                     <tr>
                         <td>${accountsHtml}</td>
-                        <td><code>${job.id}</code></td>
-                        <td><strong>${job.type}</strong></td>
+                        <td><div class="job-cell"><strong>${job.type}</strong><code>${job.id}</code></div></td>
                         <td><span class="log-timestamp">${job.started_at}</span></td>
                         <td>
                             <span class="status-badge status-running">${job.status}</span>
@@ -490,7 +488,7 @@
                     </tr>
                 `}).join('');
             } else {
-                runningTbody.innerHTML = '<tr><td colspan="5">No running jobs.</td></tr>';
+                runningTbody.innerHTML = '<tr><td colspan="4">No running jobs.</td></tr>';
             }
         }).catch(err => {
             console.error('Failed to load queue', err);

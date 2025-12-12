@@ -59,15 +59,14 @@
                 <thead>
                     <tr>
                         <th>Account</th>
-                        <th>Job ID</th>
-                        <th>Type</th>
+                        <th>Job</th>
                         <th>Started</th>
                         <th>Status</th>
                     </tr>
                 </thead>
                 <!-- Table body populated via JavaScript API call -->
                 <tbody id="running-jobs-tbody">
-                    <tr><td colspan="5">Loading...</td></tr>
+                    <tr><td colspan="4">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -85,8 +84,7 @@
                 <thead>
                     <tr>
                         <th>Accounts</th>
-                        <th>Job ID</th>
-                        <th>Type</th>
+                        <th>Job</th>
                         <th>Destination</th>
                         <th>Queued At</th>
                         <th>Actions</th>
@@ -94,7 +92,7 @@
                 </thead>
                 <!-- Table body populated via JavaScript API call -->
                 <tbody id="queue-tbody">
-                    <tr><td colspan="6">Loading...</td></tr>
+                    <tr><td colspan="5">Loading...</td></tr>
                 </tbody>
             </table>
         </div>

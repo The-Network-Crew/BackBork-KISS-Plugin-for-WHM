@@ -3,7 +3,7 @@
 ### Disaster Recovery for WHM — The Simple Way
 
 > [!NOTE]
-> **Beta Release** (v1.3.x) — Tested and working as of v1.3.3.
+> **Beta Release** (v1.3.x) — Tested and working as of v1.3.10.
 > 
 > We recommend testing in a non-production environment first. Bug reports and contributions welcome!
 
@@ -78,7 +78,7 @@ cd BackBork-KISS-Plugin-for-WHM
 
 Select your accounts, choose a destination, and fire off a backup. The interface shows you exactly what's happening in real-time with step-by-step progress logging — from pkgacct execution through to upload completion and cleanup. See the processing indicator (cog icon at the top) spin when the queue is being processed!
 
-![BackBork Backups Interface](_images/BackBork-Backups.png)
+![BackBork Backups Interface](_images/BackBork-Backup.png)
 
 ### 🔄 Restore Tab
 
