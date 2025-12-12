@@ -427,7 +427,7 @@ backbork/
 ├── 👤 users/           Per-user configs (root.json, reseller.json)
 ├── 📅 schedules/       Scheduled job definitions
 ├── 📋 queue/           Pending jobs
-├── 🏃 running/         Currently executing
+├── 🏃 running/         Currently executing (with progress tracking)
 ├── 🔄 restores/        Active restore tracking
 ├── ✅ completed/       Job history
 └── 📝 logs/            Operation logs
@@ -435,6 +435,26 @@ backbork/
 
 > [!NOTE]
 > These are metadata files only. Actual backup archives go to your configured destination (local path or remote SFTP server).
+
+### Queue Progress Tracking
+
+Running jobs track progress by account completion:
+
+```json
+{
+  "id": "job_1702234567_abc123",
+  "type": "backup",
+  "accounts": ["user1", "user2", "user3"],
+  "accounts_total": 3,
+  "accounts_completed": 1,
+  "status": "running",
+  "started_at": "2024-01-15T10:00:00Z"
+}
+```
+
+The Queue GUI calculates progress percentage as: `(accounts_completed / accounts_total) * 100`
+
+This updates in real-time as each account backup completes, providing accurate progress indication regardless of individual account backup duration.
 
 ---
 

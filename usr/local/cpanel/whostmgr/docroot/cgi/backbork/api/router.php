@@ -264,6 +264,21 @@ switch ($action) {
         echo json_encode($system->detectDatabaseServer());
         break;
     
+    /**
+     * Get reseller count (root only, for status bar)
+     * Returns list and count of reseller accounts
+     */
+    case 'get_resellers':
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'count' => 0, 'message' => 'Root access required']);
+            break;
+        }
+        $system = new BackBorkWhmApiSystem();
+        $result = $system->getResellers();
+        $result['success'] = true;
+        echo json_encode($result);
+        break;
+    
     // ========================================================================
     // BACKUP OPERATIONS
     // ========================================================================

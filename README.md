@@ -94,7 +94,7 @@ Set up automated backups on your terms — hourly, daily, weekly, or monthly. Th
 
 ### 📋 Queue Tab
 
-Monitor your backup jobs in real-time. See what's pending, what's running, and trigger manual processing when needed.
+Monitor your backup jobs in real-time. See what's pending, what's running (with live progress bars showing accounts completed), and trigger manual processing when needed.
 
 ![BackBork Queue Interface](_images/BackBork-Queue.png)
 

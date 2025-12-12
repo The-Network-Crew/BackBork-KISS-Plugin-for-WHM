@@ -145,4 +145,25 @@ class BackBorkWhmApiSystem {
             'percent_used' => $total > 0 ? round((($total - $free) / $total) * 100, 2) : 0
         ];
     }
+    
+    /**
+     * Get list of reseller accounts on the server.
+     * Uses whmapi1 listresellers command.
+     * 
+     * @return array Array with 'resellers' (list) and 'count' (int)
+     */
+    public function getResellers() {
+        $output = shell_exec(self::WHMAPI_BIN . ' listresellers --output=json 2>/dev/null');
+        $data = json_decode($output, true);
+        
+        $resellers = [];
+        if (isset($data['data']['reseller']) && is_array($data['data']['reseller'])) {
+            $resellers = $data['data']['reseller'];
+        }
+        
+        return [
+            'resellers' => $resellers,
+            'count' => count($resellers)
+        ];
+    }
 }

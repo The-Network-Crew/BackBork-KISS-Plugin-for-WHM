@@ -403,14 +403,11 @@ Removes a queued job immediately. This endpoint also supports removing schedules
     "running": [
       {
         "id": "job_456",
-        "accounts": ["user2"],
+        "accounts": ["user1", "user2", "user3"],
         "status": "running",
         "started_at": "2024-01-15T10:05:00Z",
-        "progress": {
-          "current": 1,
-          "total": 1,
-          "current_account": "user2"
-        }
+        "accounts_total": 3,
+        "accounts_completed": 1
       }
     ],
     "completed": [
@@ -425,6 +422,15 @@ Removes a queued job immediately. This endpoint also supports removing schedules
   }
 }
 ```
+
+**Running Job Progress Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `accounts_total` | int | Total number of accounts in the backup job |
+| `accounts_completed` | int | Number of accounts that have finished backing up |
+
+Progress percentage can be calculated as: `(accounts_completed / accounts_total) * 100`
 
 #### `POST ?action=cancel_job`
 

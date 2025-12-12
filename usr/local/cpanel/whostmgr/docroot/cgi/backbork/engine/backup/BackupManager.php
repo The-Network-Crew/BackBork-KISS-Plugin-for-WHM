@@ -85,9 +85,10 @@ class BackBorkBackupManager {
      * @param array $accounts List of account usernames to backup
      * @param string $destinationId Destination ID from WHM transport config
      * @param string $user User initiating the backup (for logging/permissions)
+     * @param callable|null $progressCallback Optional callback called after each account: function(int $completed, int $total)
      * @return array Result with success status, messages, per-account results, and errors
      */
-    public function createBackup($accounts, $destinationId, $user) {
+    public function createBackup($accounts, $destinationId, $user, $progressCallback = null) {
         // Generate unique backup ID for log tracking
         $backupId = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
         $logFile = self::LOG_DIR . '/' . $backupId . '.log';
@@ -182,6 +183,11 @@ class BackBorkBackupManager {
             // Build log message for this account
             $logMessages[] = "[{$account}] " . ($result['success'] ? 'SUCCESS' : 'FAILED') . ': ' . $result['message'];
             $this->writeBackupLog($logFile, "");
+            
+            // Notify progress callback (for queue progress tracking)
+            if ($progressCallback && is_callable($progressCallback)) {
+                call_user_func($progressCallback, $currentAccount, $totalAccounts);
+            }
         }
         
         // Overall success only if no errors occurred

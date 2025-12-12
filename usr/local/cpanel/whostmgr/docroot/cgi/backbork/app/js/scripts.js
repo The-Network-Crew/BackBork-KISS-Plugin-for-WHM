@@ -439,7 +439,13 @@
             
             // Running jobs
             if (data.running && data.running.length > 0) {
-                runningTbody.innerHTML = data.running.map(job => `
+                runningTbody.innerHTML = data.running.map(job => {
+                    // Calculate progress from accounts completed vs total
+                    const total = job.accounts_total || 0;
+                    const completed = job.accounts_completed || 0;
+                    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+                    const progressText = total > 0 ? `${completed}/${total}` : '';
+                    return `
                     <tr>
                         <td><code>${job.account}</code></td>
                         <td><code>${job.id}</code></td>
@@ -447,12 +453,12 @@
                         <td><span class="log-timestamp">${job.started_at}</span></td>
                         <td><span class="status-badge status-running">${job.status}</span></td>
                         <td>
-                            <div class="progress-bar" style="width: 100px;">
-                                <div class="progress-bar-fill" style="width: ${job.progress || 0}%"></div>
+                            <div class="progress-bar" style="width: 100px;" title="${progressText}">
+                                <div class="progress-bar-fill" style="width: ${progress}%"></div>
                             </div>
                         </td>
                     </tr>
-                `).join('');
+                `}).join('');
             } else {
                 runningTbody.innerHTML = '<tr><td colspan="6">No running jobs.</td></tr>';
             }
@@ -607,10 +613,10 @@
     function updateStatusMonitor(data) {
         const jobsEl = document.getElementById('status-jobs');
         const transitEl = document.getElementById('status-transit');
-        const alertsEl = document.getElementById('status-alerts');
+        const resellersEl = document.getElementById('status-resellers');
         const processingIndicator = document.getElementById('status-processing-indicator');
         
-        if (!jobsEl || !transitEl || !alertsEl) return;
+        if (!jobsEl || !transitEl) return;
         
         const queuedCount = (data.queued || []).length;
         const runningCount = (data.running || []).length;
@@ -619,12 +625,8 @@
         // Count jobs in transit (running)
         const inTransit = runningCount;
         
-        // Count failed jobs from recent completed (we'll use 0 as placeholder)
-        const alerts = 0;
-        
         jobsEl.textContent = totalJobs;
         transitEl.textContent = inTransit;
-        alertsEl.textContent = alerts;
         
         // Show/hide processing indicator based on running jobs
         if (processingIndicator) {
@@ -640,6 +642,19 @@
         if (restoresEl) {
             const restoreCount = (data.restores || []).length;
             restoresEl.textContent = restoreCount;
+        }
+        
+        // Fetch reseller count (only if element exists and root user)
+        if (resellersEl && isRootUser) {
+            apiCall('get_resellers', {}, 'GET').then(result => {
+                if (result.success) {
+                    resellersEl.textContent = result.count || 0;
+                }
+            }).catch(() => {
+                resellersEl.textContent = 0;
+            });
+        } else if (resellersEl) {
+            resellersEl.textContent = '😊';
         }
     }
 

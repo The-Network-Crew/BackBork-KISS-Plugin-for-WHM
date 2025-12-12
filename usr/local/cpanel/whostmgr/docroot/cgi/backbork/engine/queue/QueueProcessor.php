@@ -237,9 +237,9 @@ class BackBorkQueueProcessor {
         $type = $item['type'] ?? 'backup';
         
         if ($type === 'backup') {
-            return $this->processBackupItem($item);
+            return $this->processBackupItem($id, $item);
         } elseif ($type === 'restore') {
-            return $this->processRestoreItem($item);
+            return $this->processRestoreItem($id, $item);
         }
         
         return [
@@ -253,10 +253,11 @@ class BackBorkQueueProcessor {
      * 
      * Delegates actual backup execution to BackupManager.
      * 
+     * @param string $jobId Queue job ID for progress updates
      * @param array $item Queue item data with accounts, destination, user
      * @return array Result from BackupManager
      */
-    private function processBackupItem($item) {
+    private function processBackupItem($jobId, $item) {
         $accounts = $item['accounts'] ?? [];
         $destination = $item['destination'] ?? 'local';
         $user = $item['user'] ?? 'root';
@@ -265,8 +266,21 @@ class BackBorkQueueProcessor {
             return ['success' => false, 'message' => 'No accounts specified'];
         }
         
-        // Execute backup via BackupManager
-        return $this->backupManager->createBackup($accounts, $destination, $user);
+        // Set initial progress in running job
+        $this->queue->updateJob($jobId, [
+            'accounts_total' => count($accounts),
+            'accounts_completed' => 0
+        ], BackBorkQueue::getRunningDir());
+        
+        // Create progress callback for BackupManager
+        $progressCallback = function($completed) use ($jobId) {
+            $this->queue->updateJob($jobId, [
+                'accounts_completed' => $completed
+            ], BackBorkQueue::getRunningDir());
+        };
+        
+        // Execute backup via BackupManager with progress callback
+        return $this->backupManager->createBackup($accounts, $destination, $user, $progressCallback);
     }
     
     /**
@@ -274,10 +288,11 @@ class BackBorkQueueProcessor {
      * 
      * Delegates actual restore execution to RestoreManager.
      * 
+     * @param string $jobId Queue job ID for progress updates
      * @param array $item Queue item data with backup_file, destination, options
      * @return array Result from RestoreManager
      */
-    private function processRestoreItem($item) {
+    private function processRestoreItem($jobId, $item) {
         $backupFile = $item['backup_file'] ?? '';
         $destination = $item['destination'] ?? 'local';
         $options = $item['options'] ?? [];
@@ -287,9 +302,22 @@ class BackBorkQueueProcessor {
             return ['success' => false, 'message' => 'No backup file specified'];
         }
         
+        // Set progress for single-account restore (1 total, 0 completed initially)
+        $this->queue->updateJob($jobId, [
+            'accounts_total' => 1,
+            'accounts_completed' => 0
+        ], BackBorkQueue::getRunningDir());
+        
         // Execute restore via RestoreManager
         $restoreManager = new BackBorkRestoreManager();
-        return $restoreManager->restoreAccount($backupFile, $destination, $options, $user);
+        $result = $restoreManager->restoreAccount($backupFile, $destination, $options, $user);
+        
+        // Mark complete
+        $this->queue->updateJob($jobId, [
+            'accounts_completed' => 1
+        ], BackBorkQueue::getRunningDir());
+        
+        return $result;
     }
     
     // ========================================================================

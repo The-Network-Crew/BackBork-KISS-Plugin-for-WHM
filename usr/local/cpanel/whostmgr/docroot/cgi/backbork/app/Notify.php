@@ -371,6 +371,7 @@ class BackBorkNotify {
     public function sendEmail($to, $subject, $body) {
         // Validate email address format
         if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            BackBorkConfig::debugLog("sendEmail: Invalid email address: {$to}");
             return ['success' => false, 'message' => 'Invalid email address'];
         }
         
@@ -381,8 +382,14 @@ class BackBorkNotify {
             'Content-Type: text/plain; charset=UTF-8'  // Plain text UTF-8
         ];
         
+        // Debug log before sending
+        BackBorkConfig::debugLog("sendEmail: Sending to {$to}, subject: {$subject}");
+        
         // Send via PHP mail() - uses server's MTA (sendmail/postfix)
         $result = mail($to, $subject, $body, implode("\r\n", $headers));
+        
+        // Debug log result
+        BackBorkConfig::debugLog("sendEmail: Result = " . ($result ? 'success' : 'failed'));
         
         return [
             'success' => $result,

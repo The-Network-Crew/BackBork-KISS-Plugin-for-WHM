@@ -154,8 +154,8 @@
 .status-item.transit .value {
     color: rgba(253, 224, 71, 0.8);
 }
-.status-item.alerts .value {
-    color: rgba(251, 113, 133, 0.8);
+.status-item.resellers .value {
+    color: rgba(168, 162, 255, 0.8);
 }
 
 /* User Info Badge - Compact */

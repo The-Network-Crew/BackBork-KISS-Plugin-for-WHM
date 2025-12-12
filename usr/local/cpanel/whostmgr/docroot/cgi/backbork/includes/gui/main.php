@@ -49,25 +49,25 @@ if (!defined('BACKBORK_VERSION')) {
         
         <!-- Status Monitor: Real-time job counts updated via JavaScript polling -->
         <div class="status-monitor">
-            <div class="status-item processing" id="status-processing-indicator" style="display: none;">
+            <div class="status-item processing" id="status-processing-indicator" style="display: none;" title="Queue is actively being processed">
                 <span class="processing-cog">⚙️</span>
                 <span class="label">Processing</span>
             </div>
-            <div class="status-item restores">
+            <div class="status-item restores" title="Active restore operations in progress">
                 <span class="label">Restores</span>
                 <span class="value" id="status-restores">0</span>
             </div>
-            <div class="status-item jobs">
+            <div class="status-item jobs" title="Total backup jobs (queued + running)">
                 <span class="label">Back-ups</span>
                 <span class="value" id="status-jobs">0</span>
             </div>
-            <div class="status-item transit">
+            <div class="status-item transit" title="Jobs currently executing">
                 <span class="label">In-Transit</span>
                 <span class="value" id="status-transit">0</span>
             </div>
-            <div class="status-item alerts">
-                <span class="label">Alerts</span>
-                <span class="value" id="status-alerts">0</span>
+            <div class="status-item resellers" title="Resellers on this server">
+                <span class="label">Resellers</span>
+                <span class="value" id="status-resellers">0</span>
             </div>
         </div>
         
