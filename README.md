@@ -74,17 +74,21 @@ cd BackBork-KISS-Plugin-for-WHM
 
 ## 📸 Screenshots
 
-### 📦 Backups Tab
+### 📦 Backup Tab
 
 Select your accounts, choose a destination, and fire off a backup. The interface shows you exactly what's happening in real-time with step-by-step progress logging — from pkgacct execution through to upload completion and cleanup. See the processing indicator (cog icon at the top) spin when the queue is being processed!
 
 ![BackBork Backups Interface](_images/BackBork-Backups.png)
 
-### 🔄 Restores Tab
+### 🔄 Restore Tab
 
 Browse your backup files and restore entire accounts or just the bits you need. Real-time progress logging shows each step of the restore — download, verification, database handling, restorepkg execution, and cleanup. No more hunting through directories or wondering what's happening.
 
-![BackBork Restores Interface](_images/BackBork-Restores.png)
+![BackBork Restores Interface](_images/BackBork-Restore.png)
+
+**Before restoration starts, you have to confirm:**
+
+![BackBork Restores Interface - Confirm Restore](_images/BackBork-Restore-Conf.png)
 
 ### ⏰ Schedules Tab
 
@@ -119,6 +123,14 @@ Every backup, restore, and config change is logged with timestamps, users, and I
 Tweak your notification settings, database backup methods, and 22+ skip options. Each user (root/resellers) gets their own config.
 
 ![BackBork Config Interface](_images/BackBork-Config.png)
+
+**Example Notification: Slack**
+
+![BackBork KISS - Alert - Slack](_images/BackBork-Alert-Slack.png)
+
+**Example Notification: Email**
+
+![BackBork KISS - Alert - Email](_images/BackBork-Alert-Email.png)
 
 #### First, you need to create a Destination
 
