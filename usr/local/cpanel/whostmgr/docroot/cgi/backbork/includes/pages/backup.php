@@ -38,7 +38,7 @@
         <!-- Destination Selector: Populated via JavaScript from WHM API -->
         <div class="form-row">
             <div class="form-group">
-                <label for="backup-destination">Remote Destination</label>
+                <label for="backup-destination">Storage Destination</label>
                 <select id="backup-destination" class="destination-select">
                     <option value="">Loading destinations...</option>
                 </select>

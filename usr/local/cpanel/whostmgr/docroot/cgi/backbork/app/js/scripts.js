@@ -481,23 +481,23 @@
                         <td><code>${job.id}</code></td>
                         <td><strong>${job.type}</strong></td>
                         <td><span class="log-timestamp">${job.started_at}</span></td>
-                        <td><span class="status-badge status-running">${job.status}</span></td>
                         <td>
-                            <div class="progress-bar" style="width: 100px;" title="${progressText}">
+                            <span class="status-badge status-running">${job.status}</span>
+                            <div class="progress-bar" style="width: 100%; margin-top: 4px;" title="${progressText}">
                                 <div class="progress-bar-fill" style="width: ${progress}%"></div>
                             </div>
                         </td>
                     </tr>
                 `}).join('');
             } else {
-                runningTbody.innerHTML = '<tr><td colspan="6">No running jobs.</td></tr>';
+                runningTbody.innerHTML = '<tr><td colspan="5">No running jobs.</td></tr>';
             }
         }).catch(err => {
             console.error('Failed to load queue', err);
             const queueTbody = document.getElementById('queue-tbody');
             const runningTbody = document.getElementById('running-jobs-tbody');
             if (queueTbody) queueTbody.innerHTML = '<tr><td colspan="6">Unable to load queue.</td></tr>';
-            if (runningTbody) runningTbody.innerHTML = '<tr><td colspan="6">Unable to load running jobs.</td></tr>';
+            if (runningTbody) runningTbody.innerHTML = '<tr><td colspan="5">Unable to load running jobs.</td></tr>';
             updateStatusMonitor({ queued: [], running: [], restores: [] });
         });
     }

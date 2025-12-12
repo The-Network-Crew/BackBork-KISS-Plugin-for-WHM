@@ -63,12 +63,11 @@
                         <th>Type</th>
                         <th>Started</th>
                         <th>Status</th>
-                        <th>Progress</th>
                     </tr>
                 </thead>
                 <!-- Table body populated via JavaScript API call -->
                 <tbody id="running-jobs-tbody">
-                    <tr><td colspan="6">Loading...</td></tr>
+                    <tr><td colspan="5">Loading...</td></tr>
                 </tbody>
             </table>
         </div>

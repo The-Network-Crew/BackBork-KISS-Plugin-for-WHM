@@ -41,7 +41,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     <div class="backbork-card">
         <h3>🔐 Global Settings (Root Only)</h3>
         <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-            These settings apply globally to all users including resellers.
+            Where relevant, these settings apply globally. For instance, Resellers cannot Unlock Schedules nor view WHM error_log file.
         </p>
         
         <div class="checkbox-group">

@@ -505,10 +505,22 @@ switch ($action) {
             $scheduled = $processor->processSchedules();
             $processed = $processor->processQueue();
             
-            // Log successful processing
+            // Build log message with account details
+            $logAccounts = $processed['accounts'] ?? [];
+            $processedCount = $processed['processed'] ?? 0;
+            $failedCount = $processed['failed'] ?? 0;
+            $logMessage = "Manual queue process: {$processedCount} succeeded, {$failedCount} failed";
+            if (!empty($processed['processed_accounts'])) {
+                $logMessage .= "\nSucceeded: " . implode(', ', $processed['processed_accounts']);
+            }
+            if (!empty($processed['failed_accounts'])) {
+                $logMessage .= "\nFailed: " . implode(', ', $processed['failed_accounts']);
+            }
+            
+            // Log successful processing with accounts
             if (class_exists('BackBorkLog')) {
-                BackBorkLog::logEvent($currentUser, 'queue_process', [], true, 
-                    'Manual queue process completed', $requestor);
+                BackBorkLog::logEvent($currentUser, 'queue_process', $logAccounts, true, 
+                    $logMessage, $requestor);
             }
             echo json_encode(['success' => true, 'scheduled' => $scheduled, 'processed' => $processed]);
         } catch (Exception $e) {

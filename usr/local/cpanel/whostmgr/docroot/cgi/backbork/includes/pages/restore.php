@@ -39,7 +39,7 @@
         <div class="form-row">
             <div class="form-group">
                 <!-- Select which remote destination to restore from -->
-                <label for="restore-destination">Select Source</label>
+                <label for="restore-destination">Source Storage</label>
                 <select id="restore-destination" class="destination-select">
                     <option value="">Loading destinations...</option>
                 </select>

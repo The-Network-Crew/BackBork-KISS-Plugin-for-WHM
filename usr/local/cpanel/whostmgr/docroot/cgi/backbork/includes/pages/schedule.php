@@ -48,7 +48,7 @@ $scheduleIsRoot = $scheduleAcl->isRoot();     // Check if current user is root
         
         <div class="form-row">
             <div class="form-group">
-                <label for="schedule-destination">Remote Destination</label>
+                <label for="schedule-destination">Backup Storage</label>
                 <select id="schedule-destination" class="destination-select">
                     <option value="">Loading destinations...</option>
                 </select>
@@ -66,11 +66,11 @@ $scheduleIsRoot = $scheduleAcl->isRoot();     // Check if current user is root
 
         <div class="form-row">
             <div class="form-group">
-                <label for="schedule-retention">Retention (backups to keep)</label>
+                <label for="schedule-retention">Retained Backups (0 = Unlimited)</label>
                 <input type="number" id="schedule-retention" value="30" min="0" max="365" title="0 = unlimited">
             </div>
             <div class="form-group">
-                <label for="schedule-time">Preferred Time (for daily)</label>
+                <label for="schedule-time">Preferred Time (for Daily)</label>
                 <select id="schedule-time">
                     <?php for ($i = 0; $i < 24; $i++): ?>
                         <option value="<?php echo $i; ?>" <?php echo $i === 2 ? 'selected' : ''; ?>>
