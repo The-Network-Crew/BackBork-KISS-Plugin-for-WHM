@@ -78,6 +78,38 @@ class BackBorkRestoreManager {
      * @return array Result with success status and details
      */
     public function restoreAccount($backupFile, $destinationId, $options, $user) {
+        // Generate restore ID for this operation
+        $restoreId = 'restore_' . time() . '_' . substr(md5($backupFile), 0, 8);
+        return $this->executeRestore($backupFile, $destinationId, $options, $user, $restoreId);
+    }
+    
+    /**
+     * Restore an account with a pre-generated restore ID.
+     * Used when restore_id needs to be returned to client before restore starts.
+     * 
+     * @param string $backupFile Path to backup file or remote path
+     * @param string $destinationId Destination ID where backup is stored
+     * @param array $options Restore options (force, newuser, ip)
+     * @param string $user User initiating restore (for logging/permissions)
+     * @param string $restoreId Pre-generated restore ID for log tracking
+     * @return array Result with success status and details
+     */
+    public function restoreAccountWithId($backupFile, $destinationId, $options, $user, $restoreId) {
+        return $this->executeRestore($backupFile, $destinationId, $options, $user, $restoreId);
+    }
+    
+    /**
+     * Execute the actual restore operation.
+     * Internal method that handles the restore workflow.
+     * 
+     * @param string $backupFile Path to backup file or remote path
+     * @param string $destinationId Destination ID where backup is stored
+     * @param array $options Restore options (force, newuser, ip)
+     * @param string $user User initiating restore (for logging/permissions)
+     * @param string $restoreId Unique restore ID for tracking
+     * @return array Result with success status and details
+     */
+    private function executeRestore($backupFile, $destinationId, $options, $user, $restoreId) {
         // Track start time for duration logging
         $restoreStartTime = microtime(true);
         
@@ -91,8 +123,7 @@ class BackBorkRestoreManager {
         $destType = $destination ? strtolower($destination['type'] ?? 'unknown') : 'unknown';
         $isRemote = ($destType !== 'local');
         
-        // Generate restore ID early for logging
-        $restoreId = 'restore_' . time() . '_' . substr(md5($backupFile), 0, 8);
+        // Use provided restore ID
         $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
         
         // Ensure log directory exists
@@ -231,7 +262,7 @@ class BackBorkRestoreManager {
         // Pass account name to restore options so restorepkg gets correct --user=
         $options['account'] = $account;
         
-        $result = $this->executeRestore($localPath, $options, $logFile);
+        $result = $this->executeRestoreTool($localPath, $options, $logFile);
         
         if (!$result['success']) {
             $this->writeLog($logFile, "ERROR: Restore failed - " . $result['message']);
@@ -419,7 +450,7 @@ class BackBorkRestoreManager {
      * @param string|null $logFile Path to existing log file (optional)
      * @return array Result with success status and details
      */
-    private function executeRestore($backupPath, $options = [], $logFile = null) {
+    private function executeRestoreTool($backupPath, $options = [], $logFile = null) {
         // Always use restorepkg for direct file restoration
         // backup_restore_manager is queue-based and designed for restore points,
         // not direct file restoration. restorepkg supports --disable=Module for

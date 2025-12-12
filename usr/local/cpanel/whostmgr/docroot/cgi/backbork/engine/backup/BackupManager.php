@@ -78,6 +78,22 @@ class BackBorkBackupManager {
     }
     
     /**
+     * Create backup for multiple accounts with a pre-generated backup ID.
+     * Used when backup_id needs to be returned to client before backup starts.
+     * 
+     * @param array $accounts List of account usernames to backup
+     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $user User initiating the backup (for logging/permissions)
+     * @param string $backupId Pre-generated backup ID for log tracking
+     * @param callable|null $progressCallback Optional callback called after each account
+     * @return array Result with success status, messages, per-account results, and errors
+     */
+    public function createBackupWithId($accounts, $destinationId, $user, $backupId, $progressCallback = null) {
+        $logFile = self::LOG_DIR . '/' . $backupId . '.log';
+        return $this->executeBackup($accounts, $destinationId, $user, $backupId, $logFile, $progressCallback);
+    }
+    
+    /**
      * Create backup for multiple accounts.
      * Orchestrates the full backup workflow: validation, per-account backup,
      * transport to destination, notifications, and logging.
@@ -92,6 +108,22 @@ class BackBorkBackupManager {
         // Generate unique backup ID for log tracking
         $backupId = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
         $logFile = self::LOG_DIR . '/' . $backupId . '.log';
+        return $this->executeBackup($accounts, $destinationId, $user, $backupId, $logFile, $progressCallback);
+    }
+    
+    /**
+     * Execute the actual backup operation.
+     * Internal method that handles the backup workflow.
+     * 
+     * @param array $accounts List of account usernames to backup
+     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $user User initiating the backup (for logging/permissions)
+     * @param string $backupId Unique backup ID for tracking
+     * @param string $logFile Path to the log file
+     * @param callable|null $progressCallback Optional callback called after each account
+     * @return array Result with success status, messages, per-account results, and errors
+     */
+    private function executeBackup($accounts, $destinationId, $user, $backupId, $logFile, $progressCallback = null) {
         
         // Initialize log file with header
         $this->writeBackupLog($logFile, "========================================");

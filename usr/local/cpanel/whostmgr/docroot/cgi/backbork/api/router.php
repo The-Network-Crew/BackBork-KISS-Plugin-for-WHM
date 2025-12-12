@@ -315,7 +315,7 @@ switch ($action) {
     
     /**
      * Create an immediate backup
-     * Runs backup synchronously and returns result
+     * Returns backup_id immediately, then runs backup with real-time logging
      */
     case 'create_backup':
         $data = backbork_get_request_data();
@@ -331,10 +331,35 @@ switch ($action) {
             break;
         }
         
-        // Execute backup
-        $backupManager = new BackBorkBackupManager();
-        $result = $backupManager->createBackup($validAccounts, $destinationId, $currentUser);
-        echo json_encode($result);
+        // Generate backup_id early and create initial log file
+        $backupId = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
+        $logDir = '/usr/local/cpanel/3rdparty/backbork/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+        $logFile = $logDir . '/' . $backupId . '.log';
+        file_put_contents($logFile, "[" . date('H:i:s') . "] Backup initiated, preparing...\n");
+        
+        // Create a job file that the CLI runner will pick up
+        $jobFile = $logDir . '/' . $backupId . '.job';
+        $jobData = [
+            'type' => 'backup',
+            'backup_id' => $backupId,
+            'accounts' => array_values($validAccounts),
+            'destination' => $destinationId,
+            'user' => $currentUser,
+            'created_at' => date('Y-m-d H:i:s')
+        ];
+        file_put_contents($jobFile, json_encode($jobData));
+        
+        // Spawn background process to run the backup
+        $phpBin = '/usr/local/cpanel/3rdparty/bin/php';
+        $runnerScript = __DIR__ . '/runner.php';
+        $cmd = escapeshellarg($phpBin) . ' ' . escapeshellarg($runnerScript) . ' ' . escapeshellarg($jobFile) . ' > /dev/null 2>&1 &';
+        exec($cmd);
+        
+        // Return immediately with backup_id so client can start polling
+        echo json_encode(['success' => true, 'backup_id' => $backupId, 'message' => 'Backup started']);
         break;
     
     /**
@@ -537,6 +562,7 @@ switch ($action) {
     
     /**
      * Restore account from backup
+     * Returns restore_id immediately, then runs restore in background
      */
     case 'restore_backup':
         $data = backbork_get_request_data();
@@ -551,10 +577,37 @@ switch ($action) {
             break;
         }
         
-        // Execute restore
-        $restoreManager = new BackBorkRestoreManager();
-        $result = $restoreManager->restoreAccount($backupFile, $destinationId, $restoreOptions, $currentUser);
-        echo json_encode($result);
+        // Generate restore_id early and create initial log file
+        $restoreId = 'restore_' . time() . '_' . substr(md5(uniqid()), 0, 8);
+        $logDir = '/usr/local/cpanel/3rdparty/backbork/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+        $logFile = $logDir . '/' . $restoreId . '.log';
+        file_put_contents($logFile, "[" . date('H:i:s') . "] Restore initiated, preparing...\n");
+        
+        // Create a job file that the CLI runner will pick up
+        $jobFile = $logDir . '/' . $restoreId . '.job';
+        $jobData = [
+            'type' => 'restore',
+            'restore_id' => $restoreId,
+            'backup_file' => $backupFile,
+            'account' => $account,
+            'destination' => $destinationId,
+            'options' => $restoreOptions,
+            'user' => $currentUser,
+            'created_at' => date('Y-m-d H:i:s')
+        ];
+        file_put_contents($jobFile, json_encode($jobData));
+        
+        // Spawn background process to run the restore
+        $phpBin = '/usr/local/cpanel/3rdparty/bin/php';
+        $runnerScript = __DIR__ . '/runner.php';
+        $cmd = escapeshellarg($phpBin) . ' ' . escapeshellarg($runnerScript) . ' ' . escapeshellarg($jobFile) . ' > /dev/null 2>&1 &';
+        exec($cmd);
+        
+        // Return immediately with restore_id so client can start polling
+        echo json_encode(['success' => true, 'restore_id' => $restoreId, 'message' => 'Restore started']);
         break;
     
     /**

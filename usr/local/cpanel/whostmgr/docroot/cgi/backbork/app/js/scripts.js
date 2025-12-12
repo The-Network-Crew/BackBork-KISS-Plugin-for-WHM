@@ -472,9 +472,12 @@
                     const completed = job.accounts_completed || 0;
                     const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
                     const progressText = total > 0 ? `${completed}/${total}` : '';
+                    // Handle both 'accounts' array and legacy 'account' string
+                    const accountsList = job.accounts || (job.account ? [job.account] : []);
+                    const accountsHtml = accountsList.map(acc => `<code>${acc}</code>`).join(' ');
                     return `
                     <tr>
-                        <td><code>${job.account}</code></td>
+                        <td>${accountsHtml}</td>
                         <td><code>${job.id}</code></td>
                         <td><strong>${job.type}</strong></td>
                         <td><span class="log-timestamp">${job.started_at}</span></td>
