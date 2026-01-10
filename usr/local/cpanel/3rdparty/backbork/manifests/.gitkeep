@@ -1,0 +1,62 @@
+# BackBork Manifests Directory (NEW - for Pruning)
+#
+# Schedule execution manifests for accurate retention pruning.
+# Each schedule has its own manifest tracking all backup executions.
+#
+# File naming: {schedule_id}.json
+#
+# Example manifest (schedule_daily_all.json):
+# {
+#     "schedule_id": "schedule_daily_all",
+#     "schedule_name": "Daily All Accounts",
+#     "destination_id": "SFTP_Backup",
+#     "retention": 30,
+#     "executions": [
+#         {
+#             "execution_id": "exec_20260110_020000",
+#             "timestamp": "2026-01-10 02:00:00",
+#             "status": "completed",
+#             "files": [
+#                 {
+#                     "account": "account1",
+#                     "backup_file": "account1/backup-01.10.2026_02-00-05_account1.tar.gz",
+#                     "db_file": "account1/account1_db_2026-01-10_02-00-05.tar.gz",  ← if mariadb-backup
+#                     "size": 384567890,
+#                     "pruned": false,
+#                     "pruned_at": null
+#                 },
+#                 {
+#                     "account": "account2",
+#                     "backup_file": "account2/backup-01.10.2026_02-00-30_account2.tar.gz",
+#                     "db_file": null,
+#                     "size": 156789012,
+#                     "pruned": false,
+#                     "pruned_at": null
+#                 }
+#             ]
+#         },
+#         {
+#             "execution_id": "exec_20260109_020000",
+#             "timestamp": "2026-01-09 02:00:00",
+#             "status": "completed",
+#             "files": [...]
+#         }
+#     ]
+# }
+#
+# Pruning Logic:
+# 1. Load manifest for schedule
+# 2. Count non-pruned executions
+# 3. If count > retention, mark oldest executions as pruned
+# 4. Delete the actual files (backup + db files)
+# 5. Update manifest with pruned=true, pruned_at timestamp
+#
+# Benefits:
+# - Files already pruned won't be attempted again (pruned=true)
+# - Tracks both backup and DB files together
+# - Each schedule's retention is independent
+# - Clear audit trail of what was pruned and when
+#
+# Manual Backups:
+# - Manual (non-scheduled) backups get their own manifest: "_manual.json"
+# - Or can be excluded from auto-pruning entirely (retention=0)

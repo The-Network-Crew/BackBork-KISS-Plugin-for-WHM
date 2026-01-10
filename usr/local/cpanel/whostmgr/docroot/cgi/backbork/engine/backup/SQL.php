@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   SQL backup handler for hot database backups using mariadb-backup.
@@ -146,7 +146,7 @@ class BackBorkSQLBackup {
      * @param array $userConfig User configuration with backup method and options
      * @return array Result with success status, path to archive, messages
      */
-    public function backup($account, $targetDir, $userConfig) {
+    public function backupDatabases($account, $targetDir, $userConfig) {
         $method = $userConfig['db_backup_method'] ?? 'pkgacct';
         
         // Skip if method is pkgacct (handled by pkgacct itself) or skip
@@ -270,7 +270,7 @@ class BackBorkSQLBackup {
         
         // Optional: Extra arguments (advanced users)
         if (!empty($userConfig['mdb_extra_args'])) {
-            // Sanitize extra args - only allow safe characters
+            // Sanitise extra args - only allow safe characters
             $extraArgs = preg_replace('/[^a-zA-Z0-9\s\-_=\/\.]/', '', $userConfig['mdb_extra_args']);
             $cmd .= ' ' . $extraArgs;
         }
@@ -359,10 +359,16 @@ class BackBorkSQLBackup {
         
         // Build command for backup-to-image (creates single file)
         $imageFile = $targetDir . '/mysql_backup.mbi';
+        $tmpDir = $targetDir . '/tmp';
+        
+        // Create temp directory for mysqlbackup metadata
+        if (!is_dir($tmpDir)) {
+            mkdir($tmpDir, 0700, true);
+        }
         
         $cmd = escapeshellcmd($binary);
         $cmd .= ' --user=root';
-        $cmd .= ' --backup-dir=' . escapeshellarg($targetDir . '/tmp');
+        $cmd .= ' --backup-dir=' . escapeshellarg($tmpDir);
         $cmd .= ' --backup-image=' . escapeshellarg($imageFile);
         $cmd .= ' --include=' . escapeshellarg($includePattern);
         
@@ -394,6 +400,11 @@ class BackBorkSQLBackup {
         exec($cmd . ' 2>&1', $output, $returnCode);
         
         $outputStr = implode("\n", $output);
+        
+        // Clean up temp directory (metadata only, image is elsewhere)
+        if (is_dir($tmpDir)) {
+            $this->removeDirectory($tmpDir);
+        }
         
         if ($returnCode !== 0) {
             BackBorkConfig::debugLog("mysqlbackup failed: {$outputStr}");
@@ -457,7 +468,7 @@ class BackBorkSQLBackup {
      * @return array Result with success status and archive path
      */
     private function createArchive($sourceDir, $targetDir, $account) {
-        $archiveName = "db-backup-{$account}_" . date('Y-m-d_H-i-s') . '.tar.gz';
+        $archiveName = 'db-' . date('m.d.Y_H-i-s') . "_{$account}.tar.gz";
         $archivePath = $targetDir . '/' . $archiveName;
         
         // Create tar.gz archive
@@ -474,6 +485,9 @@ class BackBorkSQLBackup {
                 'output' => implode("\n", $output)
             ];
         }
+        
+        // Secure file permissions before transport
+        chmod($archivePath, 0600);
         
         return [
             'success' => true,

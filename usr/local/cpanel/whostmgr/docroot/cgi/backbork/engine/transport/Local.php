@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Local filesystem transport implementation for backup storage.
@@ -29,7 +29,7 @@
 /**
  * Local filesystem transport implementation.
  * Handles backup storage on local disk (/backup or custom paths).
- * Backups are organized in account folders: {base_path}/{account}/backup-MM.DD.YYYY_HH-MM-SS_{account}.tar.gz
+ * Backups are organised in account folders: {base_path}/{account}/backup-MM.DD.YYYY_HH-MM-SS_{account}.tar.gz
  */
 class BackBorkTransportLocal implements BackBorkTransportInterface {
     

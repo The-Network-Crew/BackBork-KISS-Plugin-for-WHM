@@ -2,11 +2,11 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Data management panel for browsing and deleting backup files.
- *   Shows account-organized backup listings with file operations.
+ *   Shows account-organised backup listings with file operations.
  *
  *  This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU Affero General Public License as published by

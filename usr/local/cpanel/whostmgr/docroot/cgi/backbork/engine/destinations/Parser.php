@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Parser for WHM backup destination configurations.
@@ -127,16 +127,16 @@ class BackBorkDestinationsParser {
         // Get the list of root-only destination IDs from global config
         $config = new BackBorkConfig();
         $globalConfig = $config->getGlobalConfig();
-        $rootOnlyIds = $globalConfig['root_only_destinations'] ?? [];
+        $rootOnlyIDs = $globalConfig['root_only_destinations'] ?? [];
         
         // If no restrictions, return all
-        if (empty($rootOnlyIds)) {
+        if (empty($rootOnlyIDs)) {
             return $destinations;
         }
         
         // Filter out destinations that are marked root-only
-        return array_values(array_filter($destinations, function($dest) use ($rootOnlyIds) {
-            return !in_array($dest['id'], $rootOnlyIds, true);
+        return array_values(array_filter($destinations, function($dest) use ($rootOnlyIDs) {
+            return !in_array($dest['id'], $rootOnlyIDs, true);
         }));
     }
     
@@ -147,7 +147,7 @@ class BackBorkDestinationsParser {
      * @param string $id Destination ID or name
      * @return array|null Destination config or null if not found
      */
-    public function getDestinationById($id) {
+    public function getDestinationByID($id) {
         $all = $this->getAvailableDestinations();
         
         // Search by ID or name
@@ -168,7 +168,7 @@ class BackBorkDestinationsParser {
      * @return string Destination name or ID
      */
     public function getDestinationName($id) {
-        $dest = $this->getDestinationById($id);
+        $dest = $this->getDestinationByID($id);
         return $dest ? $dest['name'] : $id;
     }
     
@@ -179,6 +179,6 @@ class BackBorkDestinationsParser {
      * @return bool True if destination exists
      */
     public function destinationExists($id) {
-        return $this->getDestinationById($id) !== null;
+        return $this->getDestinationByID($id) !== null;
     }
 }

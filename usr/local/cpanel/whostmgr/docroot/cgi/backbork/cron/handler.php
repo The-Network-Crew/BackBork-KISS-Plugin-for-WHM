@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Cron handler that processes scheduled backups and queue items.
@@ -36,10 +36,10 @@ if (php_sapi_name() !== 'cli') {
 // Load version constant for logging
 require_once(__DIR__ . '/../version.php');
 
-// Load Bootstrap in CLI mode (initializes all classes and dependencies)
+// Load Bootstrap in CLI mode (initialises all classes and dependencies)
 require_once(__DIR__ . '/../app/Bootstrap.php');
 
-// Initialize application for CLI environment (no session handling)
+// Initialise application for CLI environment (no session handling)
 BackBorkBootstrap::initCLI();
 
 // ============================================================================
@@ -671,7 +671,7 @@ function gatherDailyStats($forUser = 'root') {
 /**
  * Send a notification to root user for system events.
  * 
- * Centralized function for all root-only notifications (cron errors, pruning,
+ * Centralised function for all root-only notifications (cron errors, pruning,
  * queue failures, etc.). Checks global config for the specific notification
  * type's enabled flag before sending.
  * 
@@ -727,9 +727,9 @@ function sendQueueFailureNotifications($queueResults) {
     
     // Gather error details from results
     $errorDetails = [];
-    foreach ($results as $jobId => $result) {
+    foreach ($results as $jobID => $result) {
         if (!$result['success']) {
-            $errorDetails[] = $jobId . ': ' . ($result['message'] ?? 'Unknown error');
+            $errorDetails[] = $jobID . ': ' . ($result['message'] ?? 'Unknown error');
         }
     }
     

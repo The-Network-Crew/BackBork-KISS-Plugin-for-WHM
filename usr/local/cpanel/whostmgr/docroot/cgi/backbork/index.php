@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Wraps pkgacct, Cpanel::Transport::Files, and backup_restore_manager
@@ -46,7 +46,7 @@ if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQU
     exit;
 }
 
-// Initialize Bootstrap (handles ACL check)
+// Initialise Bootstrap (handles ACL check)
 if (!BackBorkBootstrap::init()) {
     BackBorkBootstrap::accessDenied();
 }

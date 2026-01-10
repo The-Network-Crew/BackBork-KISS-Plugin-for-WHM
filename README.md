@@ -3,7 +3,7 @@
 ### Disaster Recovery for WHM — The Simple Way
 
 > [!NOTE]
-> **Beta Release** (v1.3.x) — Tested and working as of v1.3.10.
+> **Release Candidate** (v1.4.x) — Feedback is critical to BackBork's world domination plans.
 > 
 > We recommend testing in a non-production environment first. Bug reports and contributions welcome!
 
@@ -32,8 +32,9 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 | 🌐 **All Accounts Mode** | Dynamic schedules that auto-include new accounts |
 | 🗂️ **Data Management** | Browse backups by account with size tracking |
 | 🔒 **Schedule Lock** | Root can prevent resellers from managing schedules |
-| 🗑️ **Retention Pruning** | Auto-delete old backups (local and remote) |
+| 🗑️ **Retention Pruning** | Manifest-based per-schedule pruning (local and remote) |
 | 👁️ **Destination Visibility** | Root can hide destinations from resellers |
+| 🔄 **Destination Status** | View and re-enable disabled WHM destinations |
 | 📧 **Notifications** | Email and Slack alerts when things happen |
 | 🔥 **Hot DB Backups** | MariaDB-backup support (no table locks!) |
 | 👥 **Multi-User** | Root and resellers, each with their own settings |
@@ -42,7 +43,9 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 | 🤖 **CLI Access** | Command-line API for Ansible/automation |
 | 📝 **Audit Logs** | Filterable by account and action, with per-account runtimes |
 | ⚙️ **22+ Skip Options** | Fine-tune exactly what gets backed up |
+| 🔐 **Secure Permissions** | Backup archives created with chmod 600 |
 | 🚀 **Update Notifications** | GUI alert when a new version is available |
+| 🔄 **Self-Update** | One-click update from GUI with email/Slack notifications |
 | ❌ **Job Cancellation** | Cancel running backups gracefully |
 
 ---
@@ -51,11 +54,33 @@ Select your accounts, pick a destination, backup/restore now or queue it. Done.
 
 ### Step 1: Install
 
+> [!IMPORTANT]
+> **Git clone is the only supported installation method.**
+>
+> This ensures commit tracking works correctly and you can easily update via `git pull`.
+> Installing from a downloaded zip archive will show "Unofficial" in the footer and is not supported.
+
 ```bash
-git clone https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM.git
-cd BackBork-KISS-Plugin-for-WHM
+# Clone the repository
+git clone https://github.com/The-Network-Crew/BackBork-KISS-for-WHM.git
+cd BackBork-KISS-for-WHM
+
+# Run the installer (as root)
 ./install.sh
 ```
+
+**Updating an existing installation:**
+
+```bash
+cd /path/to/BackBork-KISS-for-WHM
+git pull
+./install.sh
+```
+
+Alternatively, use the **Self-Update** feature in the GUI (Settings tab) for one-click updates.
+
+> [!NOTE]
+> **Coming soon:** We're planning to add a CI system with automated tests closer to full release.
 
 ### Step 2: Configure a Destination (if you haven't already)
 
@@ -317,7 +342,7 @@ Removes plugin files, cron entries, and WHM registration. **Your backups stay ri
 | 🔌 [API.md](API.md) | Full API reference for automation |
 | 🤖 [ORCH.md](ORCH.md) | Ansible playbooks and orchestration examples |
 | ⏰ [CRON.md](CRON.md) | Cron configuration and troubleshooting |
-| 🐛 [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/issues) | Report bugs or request features |
+| 🐛 [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/issues) | Report bugs or request features |
 | 📜 [LICENSE](LICENSE) | Affero GPLv3 (AGPLv3) |
 
 ---
@@ -339,10 +364,4 @@ Got BackBork sorted but nowhere to send your backups? **[Velocity Host](https://
 
 ---
 
-<div align="center">
-
 **Made with 💜 by [The Network Crew Pty Ltd](https://tnc.works) & [Velocity Host Pty Ltd](https://velocityhost.com.au)**
-
-</div>
-
-</div>

@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   High-level restore orchestration using backup_restore_manager/restorepkg.
@@ -55,11 +55,11 @@ class BackBorkRestoreManager {
     private $requestorOverride = null;
     
     /**
-     * Constructor - Initialize all dependencies.
+     * Constructor - Initialise all dependencies.
      * Sets up configuration, notification, and retrieval services.
      */
     public function __construct() {
-        // Initialize helper services
+        // Initialise helper services
         $this->config = new BackBorkConfig();
         $this->notify = new BackBorkNotify();
         $this->retrieval = new BackBorkRetrieval();
@@ -76,15 +76,15 @@ class BackBorkRestoreManager {
      * Also handles accompanying DB backup files (from mariadb-backup/mysqlbackup).
      * 
      * @param string $backupFile Path to backup file or remote path
-     * @param string $destinationId Destination ID where backup is stored
+     * @param string $destinationID Destination ID where backup is stored
      * @param array $options Restore options (force, newuser, ip)
      * @param string $user User initiating restore (for logging/permissions)
      * @return array Result with success status and details
      */
-    public function restoreAccount($backupFile, $destinationId, $options, $user) {
+    public function restoreAccount($backupFile, $destinationID, $options, $user) {
         // Generate restore ID for this operation
-        $restoreId = 'restore_' . time() . '_' . substr(md5($backupFile), 0, 8);
-        return $this->executeRestore($backupFile, $destinationId, $options, $user, $restoreId);
+        $restoreID = 'restore_' . time() . '_' . substr(md5($backupFile), 0, 8);
+        return $this->executeRestore($backupFile, $destinationID, $options, $user, $restoreID);
     }
     
     /**
@@ -92,14 +92,14 @@ class BackBorkRestoreManager {
      * Used when restore_id needs to be returned to client before restore starts.
      * 
      * @param string $backupFile Path to backup file or remote path
-     * @param string $destinationId Destination ID where backup is stored
+     * @param string $destinationID Destination ID where backup is stored
      * @param array $options Restore options (force, newuser, ip)
      * @param string $user User initiating restore (for logging/permissions)
-     * @param string $restoreId Pre-generated restore ID for log tracking
+     * @param string $restoreID Pre-generated restore ID for log tracking
      * @return array Result with success status and details
      */
-    public function restoreAccountWithId($backupFile, $destinationId, $options, $user, $restoreId) {
-        return $this->executeRestore($backupFile, $destinationId, $options, $user, $restoreId);
+    public function restoreAccountWithID($backupFile, $destinationID, $options, $user, $restoreID) {
+        return $this->executeRestore($backupFile, $destinationID, $options, $user, $restoreID);
     }
     
     /**
@@ -107,13 +107,13 @@ class BackBorkRestoreManager {
      * Internal method that handles the restore workflow.
      * 
      * @param string $backupFile Path to backup file or remote path
-     * @param string $destinationId Destination ID where backup is stored
+     * @param string $destinationID Destination ID where backup is stored
      * @param array $options Restore options (force, newuser, ip)
      * @param string $user User initiating restore (for logging/permissions)
-     * @param string $restoreId Unique restore ID for tracking
+     * @param string $restoreID Unique restore ID for tracking
      * @return array Result with success status and details
      */
-    private function executeRestore($backupFile, $destinationId, $options, $user, $restoreId) {
+    private function executeRestore($backupFile, $destinationID, $options, $user, $restoreID) {
         // Track start time for duration logging
         $restoreStartTime = microtime(true);
         
@@ -122,13 +122,31 @@ class BackBorkRestoreManager {
         
         // Get destination info for logging
         $destParser = new BackBorkDestinationsParser();
-        $destination = $destParser->getDestinationById($destinationId);
-        $destName = $destination ? ($destination['name'] ?? $destinationId) : $destinationId;
-        $destType = $destination ? strtolower($destination['type'] ?? 'unknown') : 'unknown';
+        $destination = $destParser->getDestinationByID($destinationID);
+        
+        // Validate destination exists and is enabled
+        if (!$destination) {
+            return [
+                'success' => false,
+                'message' => 'Invalid destination',
+                'restore_id' => $restoreID
+            ];
+        }
+        
+        if (empty($destination['enabled'])) {
+            return [
+                'success' => false,
+                'message' => 'Destination is disabled in WHM',
+                'restore_id' => $restoreID
+            ];
+        }
+        
+        $destName = $destination['name'] ?? $destinationID;
+        $destType = strtolower($destination['type'] ?? 'unknown');
         $isRemote = ($destType !== 'local');
         
         // Use provided restore ID
-        $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
+        $logFile = self::LOG_DIR . '/' . $restoreID . '.log';
         
         // Ensure log directory exists
         if (!is_dir(self::LOG_DIR)) {
@@ -155,7 +173,7 @@ class BackBorkRestoreManager {
             $this->writeLog($logFile, "Locating backup file on local storage...");
         }
         
-        $retrieveResult = $this->retrieval->retrieveBackup($destinationId, $backupFile);
+        $retrieveResult = $this->retrieval->retrieveBackup($destinationID, $backupFile);
         
         // Check retrieval success
         if (!$retrieveResult['success']) {
@@ -164,7 +182,7 @@ class BackBorkRestoreManager {
             $logType = $isRemote ? 'restore_remote' : 'restore_local';
             $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
             $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], false, $destInfo . "\nRetrieval failed: " . ($retrieveResult['message'] ?? 'Unknown error'));
-            $retrieveResult['restore_id'] = $restoreId;
+            $retrieveResult['restore_id'] = $restoreID;
             $retrieveResult['log_file'] = $logFile;
             return $retrieveResult;
         }
@@ -201,7 +219,7 @@ class BackBorkRestoreManager {
             $logType = $isRemote ? 'restore_remote' : 'restore_local';
             $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
             $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], false, $destInfo . "\nInvalid backup file: " . $verification['message']);
-            return ['success' => false, 'message' => 'Invalid backup file: ' . $verification['message'], 'restore_id' => $restoreId, 'log_file' => $logFile];
+            return ['success' => false, 'message' => 'Invalid backup file: ' . $verification['message'], 'restore_id' => $restoreID, 'log_file' => $logFile];
         }
         
         $this->writeLog($logFile, "Backup file verified successfully.");
@@ -211,7 +229,7 @@ class BackBorkRestoreManager {
         // STEP 3: Check for accompanying DB backup
         // ====================================================================
         // Check for accompanying DB backup file (from mariadb-backup/mysqlbackup)
-        $dbBackupFile = $this->findDbBackupFile($backupFile, $destinationId);
+        $dbBackupFile = $this->findDbBackupFile($backupFile, $destinationID);
         $dbLocalPath = null;
         
         if ($dbBackupFile) {
@@ -222,7 +240,7 @@ class BackBorkRestoreManager {
                 $this->writeLog($logFile, "Downloading database backup...");
             }
             
-            $dbRetrieveResult = $this->retrieval->retrieveBackup($destinationId, $dbBackupFile);
+            $dbRetrieveResult = $this->retrieval->retrieveBackup($destinationID, $dbBackupFile);
             if ($dbRetrieveResult['success']) {
                 $dbLocalPath = $dbRetrieveResult['local_path'];
                 if ($isRemote && strpos($dbLocalPath, '/home/backbork_tmp') === 0) {
@@ -249,7 +267,7 @@ class BackBorkRestoreManager {
                 [
                     'account' => $account,
                     'backup_file' => $backupFile,
-                    'destination' => $destinationId,
+                    'destination' => $destinationID,
                     'user' => $user,
                     'requestor' => $this->getRequestor()
                 ],
@@ -275,7 +293,7 @@ class BackBorkRestoreManager {
             $logType = $isRemote ? 'restore_remote' : 'restore_local';
             $destInfo = $isRemote ? 'Host: ' . ($destination['host'] ?? $destName) : 'Destination: ' . $destName;
             $this->logOperation($user, $logType, ["{$account} ({$durationStr})"], false, $destInfo . "\n" . $result['message']);
-            $result['restore_id'] = $restoreId;
+            $result['restore_id'] = $restoreID;
             $result['log_file'] = $logFile;
             return $result;
         }
@@ -310,7 +328,7 @@ class BackBorkRestoreManager {
         // ====================================================================
         $this->cleanupFilesWithLog($filesToCleanup, $logFile);
         
-        // Log the operation to centralized log (with duration)
+        // Log the operation to centralised log (with duration)
         // Type includes _local or _remote suffix based on destination
         $durationStr = $this->formatDuration(microtime(true) - $restoreStartTime);
         $logType = $isRemote ? 'restore_remote' : 'restore_local';
@@ -358,7 +376,7 @@ class BackBorkRestoreManager {
         $this->writeLog($logFile, "RESTORE COMPLETED SUCCESSFULLY");
         $this->writeLog($logFile, str_repeat('=', 60));
         
-        $result['restore_id'] = $restoreId;
+        $result['restore_id'] = $restoreID;
         $result['log_file'] = $logFile;
         return $result;
     }
@@ -368,10 +386,10 @@ class BackBorkRestoreManager {
      * Looks for db-backup-{account}_{timestamp}.tar.gz matching the main backup.
      * 
      * @param string $backupFile Main backup filename
-     * @param string $destinationId Destination to search
+     * @param string $destinationID Destination to search
      * @return string|null DB backup filename if found, null otherwise
      */
-    private function findDbBackupFile($backupFile, $destinationId) {
+    private function findDbBackupFile($backupFile, $destinationID) {
         // Extract account and timestamp from main backup filename
         // Official format: backup-MM.DD.YYYY_HH-MM-SS_USER.tar.gz
         $basename = basename($backupFile);
@@ -391,7 +409,7 @@ class BackBorkRestoreManager {
         $dbBackupPath = ($dir === '.' || $dir === '') ? $dbBackupName : $dir . '/' . $dbBackupName;
         
         // Verify file exists at destination
-        $destination = (new BackBorkDestinationsParser())->getDestinationById($destinationId);
+        $destination = (new BackBorkDestinationsParser())->getDestinationByID($destinationID);
         if (!$destination) {
             return null;
         }
@@ -525,11 +543,11 @@ class BackBorkRestoreManager {
         // Use existing log file or generate new one
         if ($existingLogFile) {
             $logFile = $existingLogFile;
-            $restoreId = basename($logFile, '.log');
+            $restoreID = basename($logFile, '.log');
         } else {
             // Generate unique restore ID for log tracking
-            $restoreId = 'restore_' . time() . '_' . substr(md5($backupPath), 0, 8);
-            $logFile = self::LOG_DIR . '/' . $restoreId . '.log';
+            $restoreID = 'restore_' . time() . '_' . substr(md5($backupPath), 0, 8);
+            $logFile = self::LOG_DIR . '/' . $restoreID . '.log';
             
             // Write initial status to log (only if creating new log)
             file_put_contents($logFile, "[" . date('Y-m-d H:i:s') . "] Starting restore...\n");
@@ -562,7 +580,7 @@ class BackBorkRestoreManager {
             return [
                 'success' => false,
                 'message' => 'Failed to start restore process',
-                'restore_id' => $restoreId,
+                'restore_id' => $restoreID,
                 'log_file' => $logFile
             ];
         }
@@ -638,7 +656,7 @@ class BackBorkRestoreManager {
             return [
                 'success' => false,
                 'message' => 'Restore failed (exit code ' . $returnCode . ')',
-                'restore_id' => $restoreId,
+                'restore_id' => $restoreID,
                 'log_file' => $logFile,
                 'output' => $output,
                 'log' => $allOutput,
@@ -651,7 +669,7 @@ class BackBorkRestoreManager {
         return [
             'success' => true,
             'message' => 'Restore completed successfully',
-            'restore_id' => $restoreId,
+            'restore_id' => $restoreID,
             'log_file' => $logFile,
             'output' => $output,
             'log' => $allOutput
@@ -699,7 +717,7 @@ class BackBorkRestoreManager {
         $output = [];
         exec('tar -tzf ' . escapeshellarg($backupPath) . ' 2>/dev/null', $output);
         
-        // Initialize preview data with content flags
+        // Initialise preview data with content flags
         $preview = [
             'total_files' => count($output),
             'has_homedir' => false,     // Home directory present
@@ -803,7 +821,7 @@ class BackBorkRestoreManager {
     }
     
     /**
-     * Log a restore operation to centralized log system.
+     * Log a restore operation to centralised log system.
      * Delegates to BackBorkLog for consistent logging format.
      * 
      * @param string $user User who performed the operation
@@ -818,7 +836,7 @@ class BackBorkRestoreManager {
             // Use override if set, otherwise detect requestor
             $logRequestor = $this->getRequestor();
             
-            // Log event through centralized logging
+            // Log event through centralised logging
             BackBorkLog::logEvent($user, $type === 'restore' ? 'restore' : $type, $accounts, $success, $message, $logRequestor);
         }
     }

@@ -4,7 +4,7 @@
 # Disaster Recovery Plugin for WHM
 #
 # Copyright (c) The Network Crew Pty Ltd & Velocity Host Pty Ltd
-# https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM
+# https://github.com/The-Network-Crew/BackBork-KISS-for-WHM
 #
 
 set -e
@@ -122,6 +122,7 @@ mkdir -p "${CONFIG_DIR}/running"
 mkdir -p "${CONFIG_DIR}/restores"
 mkdir -p "${CONFIG_DIR}/completed"
 mkdir -p "${CONFIG_DIR}/cancel"
+mkdir -p "${CONFIG_DIR}/manifests"
 mkdir -p "${CONFIG_DIR}/logs"
 mkdir -p "${APPS_DIR}"
 mkdir -p "${ICON_DIR}"
@@ -131,6 +132,27 @@ echo -e "${BLUE}Installing plugin files...${NC}"
 
 # Copy WHM CGI files
 cp -r "${SCRIPT_DIR}/usr/local/cpanel/whostmgr/docroot/cgi/backbork/"* "${WHM_CGI_DIR}/backbork/"
+
+# Copy updater script to config directory (persists across updates)
+cp "${SCRIPT_DIR}/usr/local/cpanel/3rdparty/backbork/updater.sh" "${CONFIG_DIR}/updater.sh"
+chmod 755 "${CONFIG_DIR}/updater.sh"
+
+# Update commit info in version.php (only if installed via git clone)
+VERSION_FILE="${WHM_CGI_DIR}/backbork/version.php"
+
+if command -v git &> /dev/null && [ -d "${SCRIPT_DIR}/.git" ]; then
+    COMMIT_HASH=$(cd "${SCRIPT_DIR}" && git rev-parse --short HEAD 2>/dev/null)
+    COMMIT_DATE=$(cd "${SCRIPT_DIR}" && git log -1 --format="%ci" 2>/dev/null | cut -d' ' -f1-2)
+    if [ -n "${COMMIT_HASH}" ]; then
+        sed -i.bak "s/define('BACKBORK_COMMIT', '[^']*')/define('BACKBORK_COMMIT', '${COMMIT_HASH}')/" "${VERSION_FILE}"
+        sed -i.bak "s/define('BACKBORK_COMMIT_DATE', '[^']*')/define('BACKBORK_COMMIT_DATE', '${COMMIT_DATE}')/" "${VERSION_FILE}"
+        rm -f "${VERSION_FILE}.bak"
+        echo -e "${GREEN}Commit: ${COMMIT_HASH} (${COMMIT_DATE})${NC}"
+    fi
+else
+    echo -e "${YELLOW}Version/commit unknown (not installed via git clone)${NC}"
+    echo -e "${YELLOW}For commit tracking, use: git clone https://github.com/The-Network-Crew/BackBork-KISS-for-WHM.git${NC}"
+fi
 
 # Copy AppConfig
 cp "${SCRIPT_DIR}/var/cpanel/apps/backbork.conf" "${APPS_DIR}/backbork.conf"
@@ -188,6 +210,7 @@ chmod 700 "${CONFIG_DIR}/running"
 chmod 700 "${CONFIG_DIR}/restores"
 chmod 700 "${CONFIG_DIR}/completed"
 chmod 700 "${CONFIG_DIR}/cancel"
+chmod 700 "${CONFIG_DIR}/manifests"
 chmod 700 "${CONFIG_DIR}/logs"
 
 # AppConfig

@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Validator and tester for backup destinations.
@@ -36,7 +36,7 @@ class BackBorkDestinationsValidator {
     private $parser;
     
     /**
-     * Constructor - Initialize parser.
+     * Constructor - Initialise parser.
      */
     public function __construct() {
         $this->parser = new BackBorkDestinationsParser();
@@ -51,7 +51,7 @@ class BackBorkDestinationsValidator {
      */
     public function testDestination($id) {
         // Look up destination configuration
-        $dest = $this->parser->getDestinationById($id);
+        $dest = $this->parser->getDestinationByID($id);
         
         if (!$dest) {
             return ['success' => false, 'message' => 'Destination not found'];
@@ -156,7 +156,7 @@ class BackBorkDestinationsValidator {
      * @return bool True if destination exists and is enabled
      */
     public function isDestinationEnabled($id) {
-        $dest = $this->parser->getDestinationById($id);
+        $dest = $this->parser->getDestinationByID($id);
         
         if (!$dest) {
             return false;
@@ -173,7 +173,7 @@ class BackBorkDestinationsValidator {
      * @return array|null Space info or null if not local
      */
     public function checkDestinationSpace($id) {
-        $dest = $this->parser->getDestinationById($id);
+        $dest = $this->parser->getDestinationByID($id);
         
         // Only applicable to local destinations
         if (!$dest || strtolower($dest['type']) !== 'local') {
@@ -205,12 +205,12 @@ class BackBorkDestinationsValidator {
      * Verify backup file integrity at a destination.
      * For local destinations, checks tar.gz validity.
      * 
-     * @param string $destinationId Destination ID
+     * @param string $destinationID Destination ID
      * @param string $filePath Path to backup file at destination
      * @return array Result with success status and message
      */
-    public function verifyBackupIntegrity($destinationId, $filePath) {
-        $dest = $this->parser->getDestinationById($destinationId);
+    public function verifyBackupIntegrity($destinationID, $filePath) {
+        $dest = $this->parser->getDestinationByID($destinationID);
         
         if (!$dest) {
             return ['success' => false, 'message' => 'Destination not found'];

@@ -2,10 +2,10 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
- *   Centralized logging system for all BackBork operations and events.
+ *   Centralised logging system for all BackBork operations and events.
  *   Provides structured JSON logging with operation tracking and auditing.
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -34,7 +34,7 @@ if (!defined('BACKBORK_VERSION')) {
 /**
  * Class BackBorkLog
  * 
- * Static logging class providing centralized operation logging.
+ * Static logging class providing centralised operation logging.
  * All methods are static for easy access throughout the application.
  */
 class BackBorkLog {

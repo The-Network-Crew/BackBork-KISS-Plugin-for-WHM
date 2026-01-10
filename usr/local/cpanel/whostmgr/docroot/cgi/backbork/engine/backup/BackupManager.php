@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   High-level backup orchestration coordinating pkgacct and transport.
@@ -54,21 +54,25 @@ class BackBorkBackupManager {
     /** @var BackBorkSQLBackup Hot database backup handler */
     private $dbBackup;
     
+    /** @var BackBorkManifest Manifest handler for backup tracking */
+    private $manifest;
+    
     /** @var string|null Override requestor (IP or 'cron') - set by runner.php for manual jobs */
     private $requestorOverride = null;
     
     /**
-     * Constructor - Initialize all dependencies.
+     * Constructor - Initialise all dependencies.
      * Sets up configuration, notification, destination parsing, and pkgacct services.
      * Creates required directories if they don't exist.
      */
     public function __construct() {
-        // Initialize helper services
+        // Initialise helper services
         $this->config = new BackBorkConfig();
         $this->notify = new BackBorkNotify();
         $this->destinations = new BackBorkDestinationsParser();
         $this->pkgacct = new BackBorkPkgacct();
         $this->dbBackup = new BackBorkSQLBackup();
+        $this->manifest = new BackBorkManifest();
         
         // Ensure temp directory exists for staging backups (secure permissions)
         if (!is_dir(self::TEMP_DIR)) {
@@ -86,15 +90,15 @@ class BackBorkBackupManager {
      * Used when backup_id needs to be returned to client before backup starts.
      * 
      * @param array $accounts List of account usernames to backup
-     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $destinationID Destination ID from WHM transport config
      * @param string $user User initiating the backup (for logging/permissions)
-     * @param string $backupId Pre-generated backup ID for log tracking
+     * @param string $backupID Pre-generated backup ID for log tracking
      * @param callable|null $progressCallback Optional callback called after each account
      * @return array Result with success status, messages, per-account results, and errors
      */
-    public function createBackupWithId($accounts, $destinationId, $user, $backupId, $progressCallback = null) {
-        $logFile = self::LOG_DIR . '/' . $backupId . '.log';
-        return $this->executeBackup($accounts, $destinationId, $user, $backupId, $logFile, $progressCallback);
+    public function createBackupWithID($accounts, $destinationID, $user, $backupID, $progressCallback = null) {
+        $logFile = self::LOG_DIR . '/' . $backupID . '.log';
+        return $this->executeBackup($accounts, $destinationID, $user, $backupID, $logFile, $progressCallback);
     }
     
     /**
@@ -103,17 +107,19 @@ class BackBorkBackupManager {
      * transport to destination, notifications, and logging.
      * 
      * @param array $accounts List of account usernames to backup
-     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $destinationID Destination ID from WHM transport config
      * @param string $user User initiating the backup (for logging/permissions)
      * @param callable|null $progressCallback Optional callback called after each account: function(int $completed, int $total)
-     * @param string|null $jobId Optional job ID for cancellation checking (from queue)
+     * @param string|null $jobID Optional job ID for cancellation checking (from queue)
+     * @param string|null $scheduleID Optional schedule ID for manifest tracking (null for manual backups)
+     * @param int $retention Retention count for manifest (0 = unlimited)
      * @return array Result with success status, messages, per-account results, and errors
      */
-    public function createBackup($accounts, $destinationId, $user, $progressCallback = null, $jobId = null) {
+    public function createBackup($accounts, $destinationID, $user, $progressCallback = null, $jobID = null, $scheduleID = null, $retention = 30) {
         // Generate unique backup ID for log tracking
-        $backupId = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
-        $logFile = self::LOG_DIR . '/' . $backupId . '.log';
-        return $this->executeBackup($accounts, $destinationId, $user, $backupId, $logFile, $progressCallback, $jobId);
+        $backupID = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
+        $logFile = self::LOG_DIR . '/' . $backupID . '.log';
+        return $this->executeBackup($accounts, $destinationID, $user, $backupID, $logFile, $progressCallback, $jobID, $scheduleID, $retention);
     }
     
     /**
@@ -121,21 +127,23 @@ class BackBorkBackupManager {
      * Internal method that handles the backup workflow.
      * 
      * @param array $accounts List of account usernames to backup
-     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $destinationID Destination ID from WHM transport config
      * @param string $user User initiating the backup (for logging/permissions)
-     * @param string $backupId Unique backup ID for tracking
+     * @param string $backupID Unique backup ID for tracking
      * @param string $logFile Path to the log file
      * @param callable|null $progressCallback Optional callback called after each account
-     * @param string|null $jobId Optional job ID for cancellation checking
+     * @param string|null $jobID Optional job ID for cancellation checking
+     * @param string|null $scheduleID Optional schedule ID for manifest tracking
+     * @param int $retention Retention count for manifest
      * @return array Result with success status, messages, per-account results, and errors
      */
-    private function executeBackup($accounts, $destinationId, $user, $backupId, $logFile, $progressCallback = null, $jobId = null) {
+    private function executeBackup($accounts, $destinationID, $user, $backupID, $logFile, $progressCallback = null, $jobID = null, $scheduleID = null, $retention = 30) {
         
-        // Initialize log file with header
+        // Initialise log file with header
         $this->writeBackupLog($logFile, "========================================");
         $this->writeBackupLog($logFile, "BACKBORK BACKUP OPERATION");
         $this->writeBackupLog($logFile, "========================================");
-        $this->writeBackupLog($logFile, "Backup ID: {$backupId}");
+        $this->writeBackupLog($logFile, "Backup ID: {$backupID}");
         $this->writeBackupLog($logFile, "Started: " . date('Y-m-d H:i:s'));
         $this->writeBackupLog($logFile, "User: {$user}");
         $this->writeBackupLog($logFile, "Accounts: " . implode(', ', $accounts));
@@ -145,14 +153,23 @@ class BackBorkBackupManager {
         $userConfig = $this->config->getUserConfig($user);
         
         // Look up the destination configuration by ID
-        $destination = $this->destinations->getDestinationById($destinationId);
+        $destination = $this->destinations->getDestinationByID($destinationID);
         
         // Validate destination exists
         if (!$destination) {
-            $this->writeBackupLog($logFile, "[ERROR] Invalid destination ID: {$destinationId}");
+            $this->writeBackupLog($logFile, "[ERROR] Invalid destination ID: {$destinationID}");
             $this->writeBackupLog($logFile, "");
             $this->writeBackupLog($logFile, "BACKUP FAILED");
-            return ['success' => false, 'message' => 'Invalid destination', 'backup_id' => $backupId];
+            return ['success' => false, 'message' => 'Invalid destination', 'backup_id' => $backupID];
+        }
+        
+        // Check destination is enabled
+        if (empty($destination['enabled'])) {
+            $this->writeBackupLog($logFile, "[ERROR] Destination is disabled: {$destination['name']}");
+            $this->writeBackupLog($logFile, "  → Enable via WHM → Backup Configuration → Additional Destinations");
+            $this->writeBackupLog($logFile, "");
+            $this->writeBackupLog($logFile, "BACKUP FAILED");
+            return ['success' => false, 'message' => 'Destination is disabled in WHM', 'backup_id' => $backupID];
         }
         
         $destType = strtolower($destination['type'] ?? 'local');
@@ -217,6 +234,18 @@ class BackBorkBackupManager {
                 $this->writeBackupLog($logFile, "  ✗ FAILED: " . $result['message'] . " ({$durationStr})");
             } else {
                 $this->writeBackupLog($logFile, "  ✓ SUCCESS: " . $result['message'] . " ({$durationStr})");
+                
+                // Write to manifest for pruning tracking
+                $manifestID = $scheduleID ?? BackBorkManifest::MANUAL_MANIFEST_ID;
+                $this->manifest->addEntry(
+                    $manifestID,
+                    $account,
+                    $result['file'] ?? '',
+                    $result['db_file'] ?? null,
+                    $result['size'] ?? 0,
+                    $destinationID,
+                    $retention
+                );
             }
             
             // Build log message for this account
@@ -229,14 +258,14 @@ class BackBorkBackupManager {
             }
             
             // Check for cancellation request after each account (if running from queue)
-            if ($jobId && class_exists('BackBorkQueue') && BackBorkQueue::isCancelRequested($jobId)) {
+            if ($jobID && class_exists('BackBorkQueue') && BackBorkQueue::isCancelRequested($jobID)) {
                 $this->writeBackupLog($logFile, "");
                 $this->writeBackupLog($logFile, "⚠️ CANCELLATION REQUESTED");
                 $this->writeBackupLog($logFile, "Job cancelled by user after completing {$currentAccount}/{$totalAccounts} accounts");
                 $this->writeBackupLog($logFile, "");
                 
                 // Clear the cancel marker
-                BackBorkQueue::clearCancelRequest($jobId);
+                BackBorkQueue::clearCancelRequest($jobID);
                 
                 // Log the cancellation
                 $remainingAccounts = array_slice($accounts, $currentAccount);
@@ -341,7 +370,7 @@ class BackBorkBackupManager {
             'results' => $results,
             'errors' => $errors,
             'log' => implode("\n", $logMessages),
-            'backup_id' => $backupId
+            'backup_id' => $backupID
         ];
     }
     
@@ -445,6 +474,9 @@ class BackBorkBackupManager {
             ];
         }
         
+        // Secure file permissions before transport
+        chmod($finalFile, 0600);
+        
         $fileSize = filesize($finalFile);
         $this->writeBackupLog($logFile, "      → Archive size: " . $this->formatSize($fileSize));
         
@@ -493,7 +525,10 @@ class BackBorkBackupManager {
             $this->writeBackupLog($logFile, "  [3d] Local backup complete - files in place");
             return [
                 'success' => true,
-                'message' => 'Backup completed successfully'
+                'message' => 'Backup completed successfully',
+                'file' => $backupFile,
+                'db_file' => isset($dbArchiveName) ? $dbArchiveName : null,
+                'size' => $fileSize
             ];
         }
         
@@ -533,7 +568,10 @@ class BackBorkBackupManager {
         
         return [
             'success' => $allSuccess,
-            'message' => $allSuccess ? 'Backup completed successfully' : implode('; ', $messages)
+            'message' => $allSuccess ? 'Backup completed successfully' : implode('; ', $messages),
+            'file' => $backupFile,
+            'db_file' => isset($dbArchiveName) ? $dbArchiveName : null,
+            'size' => $fileSize
         ];
     }
     
@@ -566,14 +604,14 @@ class BackBorkBackupManager {
      * Queries the specified destination for available backup files.
      * Optionally filters by account name substring.
      * 
-     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $destinationID Destination ID from WHM transport config
      * @param string $user User requesting (for permission filtering)
      * @param string $account Optional account filter (partial match)
      * @return array Result with success status and list of backup files
      */
-    public function listRemoteBackups($destinationId, $user, $account = '') {
+    public function listRemoteBackups($destinationID, $user, $account = '') {
         // Look up destination configuration by ID
-        $destination = $this->destinations->getDestinationById($destinationId);
+        $destination = $this->destinations->getDestinationByID($destinationID);
         
         // Validate destination exists
         if (!$destination) {
@@ -673,7 +711,7 @@ class BackBorkBackupManager {
     }
     
     /**
-     * Log a backup/restore operation to the centralized log system.
+     * Log a backup/restore operation to the centralised log system.
      * Delegates to BackBorkLog for consistent logging format.
      * 
      * @param string $user User who performed the operation
@@ -688,7 +726,7 @@ class BackBorkBackupManager {
             // Use override if set, otherwise detect requestor
             $logRequestor = $this->getRequestor();
             
-            // Log event through centralized logging
+            // Log event through centralised logging
             BackBorkLog::logEvent($user, $type === 'backup' ? 'backup' : $type, $accounts, $success, $message, $logRequestor);
         }
     }
@@ -706,7 +744,7 @@ class BackBorkBackupManager {
      * @return array Paginated log entries with metadata
      */
     public function getLogs($user, $isRoot, $page = 1, $limit = 50, $filter = 'all') {
-        // Delegate to centralized logger for consistency
+        // Delegate to centralised logger for consistency
         if (class_exists('BackBorkLog')) {
             return BackBorkLog::getLogs($user, $isRoot, $page, $limit, $filter);
         }

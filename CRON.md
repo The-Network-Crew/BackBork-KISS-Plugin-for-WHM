@@ -83,47 +83,61 @@ EOF
 **What It Does:**
 
 1. 📅 Checks for scheduled backups due to run
-2. 📋 Adds due schedules to the queue
-3. 🏃 Processes pending queue items
-4. 📊 Updates job status
-5. 📧 Sends notifications on completion
-6. 🗑️ **Prunes old backups** based on schedule retention settings
-7. 🔍 Performs self-health check
+2. ✅ **Verifies destination is enabled** (skips disabled destinations)
+3. 📋 Adds due schedules to the queue
+4. 🏃 Processes pending queue items
+5. 📊 Updates job status
+6. 📧 Sends notifications on completion
+7. 🗑️ **Prunes old backups** based on schedule retention settings (manifest-based)
+8. 🔍 Performs self-health check
 
-### 2️⃣ Retention Pruning (Hourly)
+> [!NOTE]
+> **Destination Validation:** If a WHM backup destination is disabled, schedules targeting that destination are skipped. This prevents backup failures and wasted processing when destinations are temporarily unavailable.
+
+### 2️⃣ Retention Pruning (Manifest-Based)
 
 > [!IMPORTANT]
-> **New in v1.2.8:** BackBork now automatically prunes old backups based on schedule retention settings.
+> **New in v1.4.3:** BackBork now uses a manifest system to track which backups belong to which schedules, enabling intelligent per-schedule pruning.
 
-Retention pruning runs **every hour** as part of the main cron job to ensure backup counts stay within limits, even with frequent schedules.
+Retention pruning runs **after each scheduled backup job completes** and uses the manifest to identify which backups to prune.
 
 **How It Works:**
 
 | Aspect | Details |
 |--------|---------|
-| **Trigger** | Runs hourly with main cron |
-| **Scope** | Per-schedule, per-account |
+| **Trigger** | After each scheduled backup completes |
+| **Scope** | Per-schedule (only prunes backups created by that schedule) |
 | **Retention = 0** | Unlimited (no pruning) |
 | **Default** | 30 backups |
-| **Method** | Count-based (keeps N newest backups) |
+| **Method** | Manifest-based count (keeps N newest per schedule) |
+| **Manual backups** | Never pruned (tracked as `_manual` in manifest) |
 
 **Pruning Logic:**
 
-1. 📋 Iterates through all configured schedules
-2. 🔍 Reads each schedule's `retention` setting (backup count)
-3. 📂 Lists backups at the destination for each account
-4. 🗓️ Sorts backups by age (newest first)
-5. 📊 Compares count: if backups ≤ retention, **nothing is deleted**
-6. 🗑️ If backups > retention, deletes the oldest excess backups
+1. 📋 Reads the manifest file for the destination
+2. 🔍 Filters entries for the specific schedule ID
+3. 🗓️ Sorts entries by creation date (newest first)
+4. 📊 Compares count: if entries ≤ retention, **nothing is deleted**
+5. 🗑️ If entries > retention, deletes the oldest excess backups **and their DB files**
+6. 📝 Removes pruned entries from the manifest
 
 > [!NOTE]
-> **Inherently Safe:** Count-based retention means pruning only occurs when you have MORE backups than the retention limit. If backups have been failing, no new backups exist to push older ones out — so nothing gets deleted.
+> **Schedule Isolation:** Each schedule manages its own backups independently. A daily schedule with 7-day retention won't delete backups from a monthly schedule with 12-month retention, even for the same account.
 
 **Example:**
-- Schedule has `retention: 7` (keep 7 backups)
-- Account has 10 backups → deletes the 3 oldest
-- Account has 5 backups → nothing deleted (5 ≤ 7)
-- Account has 1 backup (from failed runs) → nothing deleted (1 ≤ 7)
+- Daily schedule has `retention: 7` for account `someuser`
+- Monthly schedule has `retention: 4` for account `someuser`
+- After daily backup: prunes daily backups only (keeps 7 newest)
+- After monthly backup: prunes monthly backups only (keeps 4 newest)
+- Both schedule types coexist without interfering
+
+**Manual/One-Time Backups:**
+- Tracked in manifest with `schedule_id: "_manual"`
+- **Never automatically pruned** — must be deleted manually via Data tab
+- This ensures on-demand backups are preserved regardless of retention settings
+
+> [!WARNING]
+> **Legacy Backups:** Backups created before v1.4.3 are not tracked in the manifest and will NOT be automatically pruned. You can delete these manually via the Data tab or command line.
 
 ### 3️⃣ Daily Summary (Midnight)
 
@@ -366,7 +380,7 @@ tail -f /usr/local/cpanel/3rdparty/backbork/logs/cron.log
 **Fix:**
 ```bash
 # Re-run installer
-cd /path/to/BackBork-KISS-Plugin-for-WHM
+cd /path/to/BackBork-KISS-for-WHM
 ./install.sh
 
 # Or manually create:
@@ -448,12 +462,8 @@ ls -la /usr/local/cpanel/3rdparty/backbork/queue/
 | 📖 **README** | [README.md](README.md) |
 | 🔧 **Technical Docs** | [TECHNICAL.md](TECHNICAL.md) |
 | 🔌 **API Reference** | [API.md](API.md) |
-| 🐛 **Report Issues** | [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/issues) |
+| 🐛 **Report Issues** | [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/issues) |
 
 ---
 
-<div align="center">
-
 **Made with 💜 by [The Network Crew Pty Ltd](https://tnc.works) & [Velocity Host Pty Ltd](https://velocityhost.com.au)** 💜
-
-</div>

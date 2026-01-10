@@ -94,6 +94,53 @@
         const alertEl = document.getElementById('update-alert');
         if (alertEl) alertEl.style.display = 'none';
     };
+    
+    // Perform self-update (root only)
+    // Downloads latest version from GitHub and runs installer in background
+    // Notifications sent to root email + plugin contacts upon completion
+    window.performUpdate = function() {
+        const btn = document.getElementById('btn-perform-update');
+        const alertEl = document.getElementById('update-alert');
+        
+        // Confirm before proceeding
+        if (!confirm('This will download and install the latest version of BackBork KISS.\n\nThe update runs in the background. You will receive email/Slack notifications when complete.\n\nDo you want to proceed?')) {
+            return;
+        }
+        
+        // Disable button and show progress
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-sm"></span> Updating...';
+        }
+        
+        apiCall('perform_update', {}, 'POST').then(data => {
+            if (data.success) {
+                // Show success message
+                if (alertEl) {
+                    alertEl.innerHTML = '<span>🔄 <strong>Update in progress!</strong> You will be notified by email/Slack when complete. The page may need to be refreshed after update.</span>' +
+                        '<button type="button" class="update-alert-dismiss" onclick="dismissUpdateAlert()" title="Dismiss">✕</button>';
+                    alertEl.classList.add('update-in-progress');
+                }
+                showToast('Update started! You will be notified when complete.', 'success');
+            } else {
+                // Show error
+                showToast('Update failed: ' + (data.message || 'Unknown error'), 'error');
+                // Re-enable button
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Update Now';
+                }
+            }
+        }).catch(err => {
+            console.error('Update failed:', err);
+            showToast('Update failed: ' + err.message, 'error');
+            // Re-enable button
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = 'Update Now';
+            }
+        });
+    };
 
     // =========================================================================
     // TAB NAVIGATION
@@ -112,7 +159,7 @@
                 if (this.dataset.tab === 'queue') loadQueue();
                 if (this.dataset.tab === 'logs') loadLogs();
                 if (this.dataset.tab === 'schedule') loadSchedules();
-                if (this.dataset.tab === 'settings') { checkCronStatus(); loadDestinationVisibility(); }
+                if (this.dataset.tab === 'settings') { checkCronStatus(); loadDestinationVisibility(); loadDisabledDestinations(); }
             });
         });
     }
@@ -516,9 +563,9 @@
             if (data.running && data.running.length > 0) {
                 // Clean up cancellingJobs set - remove jobs no longer in running list
                 const runningIds = new Set(data.running.map(j => j.id));
-                for (const jobId of cancellingJobs) {
-                    if (!runningIds.has(jobId)) {
-                        cancellingJobs.delete(jobId);
+                for (const jobID of cancellingJobs) {
+                    if (!runningIds.has(jobID)) {
+                        cancellingJobs.delete(jobID);
                     }
                 }
                 
@@ -594,22 +641,22 @@
     // Format schedule frequency for display (capitalize + add day/time info)
     function formatScheduleFrequency(schedule) {
         const freq = schedule.schedule || 'daily';
-        const capitalized = freq.charAt(0).toUpperCase() + freq.slice(1);
+        const capitalised = freq.charAt(0).toUpperCase() + freq.slice(1);
         const preferredHour = schedule.preferred_time ?? 2;
         const hourStr = String(preferredHour).padStart(2, '0') + ':00';
         
         if (freq === 'weekly') {
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const dayOfWeek = schedule.day_of_week ?? 0;
-            return capitalized + ' (' + dayNames[dayOfWeek % 7] + ' ' + hourStr + ')';
+            return capitalised + ' (' + dayNames[dayOfWeek % 7] + ' ' + hourStr + ')';
         } else if (freq === 'monthly') {
-            return capitalized + ' (1st ' + hourStr + ')';
+            return capitalised + ' (1st ' + hourStr + ')';
         } else if (freq === 'daily') {
-            return capitalized + ' (' + hourStr + ')';
+            return capitalised + ' (' + hourStr + ')';
         } else if (freq === 'hourly') {
-            return capitalized;
+            return capitalised;
         }
-        return capitalized;
+        return capitalised;
     }
     
     // Load Schedules
@@ -707,7 +754,8 @@
         });
     }
 
-    // Render Pagination
+    // Render Pagination with windowed page numbers
+    // Shows: [1][2][3]...[current-3]...[current+3]...[last-2][last-1][last]
     function renderPagination(totalPages, currentPage) {
         const container = document.getElementById('logs-pagination');
         if (totalPages <= 1) {
@@ -715,11 +763,56 @@
             return;
         }
         
+        const windowSize = 3; // Pages either side of current
         let html = '';
-        for (let i = 1; i <= totalPages; i++) {
-            html += `<button class="btn btn-sm ${i === currentPage ? 'btn-primary' : 'btn-secondary'}" 
-                     onclick="loadLogs(${i})" style="margin: 0 2px;">${i}</button>`;
+        
+        // Helper to create a page button
+        const pageButton = (page) => {
+            const active = page === currentPage ? 'btn-primary' : 'btn-secondary';
+            return `<button class="btn btn-sm ${active}" onclick="loadLogs(${page})" style="margin: 0 2px;">${page}</button>`;
+        };
+        
+        // Helper to create ellipsis
+        const ellipsis = () => '<span style="margin: 0 4px; color: var(--text-muted);">...</span>';
+        
+        // If total pages <= 10, show all
+        if (totalPages <= 10) {
+            for (let i = 1; i <= totalPages; i++) {
+                html += pageButton(i);
+            }
+        } else {
+            // Always show first 3 pages
+            for (let i = 1; i <= Math.min(3, totalPages); i++) {
+                html += pageButton(i);
+            }
+            
+            // Calculate window around current page
+            const windowStart = Math.max(4, currentPage - windowSize);
+            const windowEnd = Math.min(totalPages - 3, currentPage + windowSize);
+            
+            // Add ellipsis if gap before window
+            if (windowStart > 4) {
+                html += ellipsis();
+            }
+            
+            // Show pages in window around current
+            for (let i = windowStart; i <= windowEnd; i++) {
+                if (i > 3 && i < totalPages - 2) {
+                    html += pageButton(i);
+                }
+            }
+            
+            // Add ellipsis if gap after window
+            if (windowEnd < totalPages - 3) {
+                html += ellipsis();
+            }
+            
+            // Always show last 3 pages
+            for (let i = Math.max(totalPages - 2, 4); i <= totalPages; i++) {
+                html += pageButton(i);
+            }
         }
+        
         container.innerHTML = html;
     }
 
@@ -784,7 +877,7 @@
                     : (data.command || 'Cron entry found');
                 container.innerHTML = `
                     <div class="alert alert-success" style="margin-bottom: 0;">
-                        <strong>✓ Cron is properly configured</strong>
+                        <strong>Cron is properly configured.</strong>
                         <small style="display: block; opacity: 0.8; margin-top: 4px;">Path: <code>${data.path || '/etc/cron.d/backbork'}</code></small>
                     </div>
                     <code style="display: block; margin-top: 12px; padding: 10px; background: var(--terminal-bg); border-radius: 6px; font-size: 12px; color: var(--terminal-text); overflow-x: auto; white-space: pre-wrap; word-break: break-all;">${cronLine}</code>
@@ -792,7 +885,7 @@
             } else {
                 container.innerHTML = `
                     <div class="alert alert-danger" style="margin-bottom: 0;">
-                        <strong>✗ Cron not configured</strong><br>
+                        <strong>Cron is NOT properly configured!</strong><br>
                         <small>${data.message || 'Run the install script to set up the cron job.'}</small>
                     </div>
                 `;
@@ -834,10 +927,10 @@
                 const destName = dest.name || dest.id;
                 const destType = dest.type || 'Unknown';
                 const isLocal = dest.id.toLowerCase() === 'local' || destType.toLowerCase() === 'local';
-                const validateBtn = isLocal ? '' : `<button class="btn btn-sm btn-secondary validate-dest-btn" data-dest-id="${dest.id}" data-dest-name="${destName}" style="margin-left: auto; padding: 2px 8px; font-size: 11px;">Validate</button>`;
+                const validateBtn = isLocal ? '' : `<button class="btn btn-sm btn-secondary validate-dest-btn" data-destination="${dest.id}" data-dest-name="${destName}" style="margin-left: auto; padding: 2px 8px; font-size: 11px;">Validate</button>`;
                 html += `
                     <label style="display: flex; align-items: center; gap: 8px;">
-                        <input type="checkbox" class="dest-visibility-checkbox" data-dest-id="${dest.id}" ${isRootOnly ? 'checked' : ''}>
+                        <input type="checkbox" class="dest-visibility-checkbox" data-destination="${dest.id}" ${isRootOnly ? 'checked' : ''}>
                         <span><strong>${destName}</strong> <small style="color: var(--text-muted);">(${destType})</small></span>
                         ${isRootOnly ? '<span style="font-size: 11px; padding: 2px 6px; background: var(--danger-light); color: var(--danger); border-radius: 3px;">Root Only</span>' : ''}
                         ${validateBtn}
@@ -846,17 +939,17 @@
             });
             html += '</div>';
             html += '<div id="dest-validation-result" style="margin-top: 12px;"></div>';
-            html += '<p style="font-size: 12px; color: var(--text-muted); margin-top: 12px;">Check a destination to make it root-only (hidden from resellers).</p>';
+            html += '<p style="font-size: 12px; color: var(--text-secondary); margin-top: 12px;"><code>Check a destination to make it root-only (hidden from resellers).</code></p>';
             
             container.innerHTML = html;
             
             // Add event listeners to checkboxes
             container.querySelectorAll('.dest-visibility-checkbox').forEach(cb => {
                 cb.addEventListener('change', function() {
-                    const destId = this.dataset.destId;
+                    const destination = this.dataset.destination;
                     const rootOnly = this.checked;
                     
-                    apiCall('set_destination_visibility', { destination_id: destId, root_only: rootOnly }).then(result => {
+                    apiCall('set_destination_visibility', { destination_id: destination, root_only: rootOnly }).then(result => {
                         if (result.success) {
                             // Refresh the list to update labels
                             loadDestinationVisibility();
@@ -876,9 +969,9 @@
                 btn.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const destId = this.dataset.destId;
-                    const destName = this.dataset.destName || destId;
-                    validateDestination(destId, destName, this);
+                    const destination = this.dataset.destination;
+                    const destName = this.dataset.destName || destination;
+                    validateDestination(destination, destName, this);
                 });
             });
         }).catch(err => {
@@ -888,7 +981,7 @@
     }
 
     // Validate a remote destination
-    function validateDestination(destId, destName, buttonEl) {
+    function validateDestination(destination, destName, buttonEl) {
         const resultDiv = document.getElementById('dest-validation-result');
         const originalText = buttonEl.textContent;
         
@@ -899,7 +992,7 @@
         // Clear previous result
         if (resultDiv) resultDiv.innerHTML = '';
         
-        apiCall('validate_destination', { destination: destId }).then(result => {
+        apiCall('validate_destination', { destination_id: destination }).then(result => {
             buttonEl.disabled = false;
             buttonEl.textContent = originalText;
             
@@ -929,6 +1022,76 @@
                     </div>`;
             }
             console.error('Destination validation failed:', err);
+        });
+    }
+
+    // Load Disabled Destinations (root only)
+    function loadDisabledDestinations() {
+        const container = document.getElementById('disabled-destinations-list');
+        if (!container) return; // Not root user, element doesn't exist
+        
+        apiCall('get_destinations', {}, 'GET').then(data => {
+            const destinations = data.destinations || [];
+            const disabledDests = destinations.filter(d => !d.enabled);
+            
+            if (disabledDests.length === 0) {
+                container.innerHTML = '<div class="alert alert-success" style="margin-bottom: 0;"><strong>All destinations are enabled. <a href="https://www.youtube.com/watch?v=WViLb31x5Go" target="_blank">Very nice</a>.</strong></div>';
+                return;
+            }
+            
+            let html = '<div class="alert alert-danger" style="margin-bottom: 12px;"><strong>' + disabledDests.length + ' destination' + (disabledDests.length > 1 ? 's are' : ' is') + ' disabled. Please resolve!</strong></div>';
+            html += '<div style="display: flex; flex-direction: column; gap: 8px;">';
+            disabledDests.forEach(dest => {
+                const destName = dest.name || dest.id;
+                const destType = dest.type || 'Unknown';
+                html += `
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--danger-light); border-radius: 4px;">
+                        <span>
+                            <strong>${destName}</strong>
+                            <small style="color: var(--text-muted);">(${destType})</small>
+                            <span style="font-size: 11px; padding: 2px 6px; background: var(--danger); color: white; border-radius: 3px; margin-left: 8px;">Disabled</span>
+                        </span>
+                        <button class="btn btn-sm btn-success enable-dest-btn" data-destination="${dest.id}" data-dest-name="${destName}">
+                            Enable
+                        </button>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            html += '<p style="font-size: 12px; color: var(--text-secondary); margin-top: 12px;">Click Enable to activate the destination via WHM API.</p>';
+            
+            container.innerHTML = html;
+            
+            // Add event listeners to enable buttons
+            container.querySelectorAll('.enable-dest-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const destination = this.dataset.destination;
+                    const destName = this.dataset.destName || destination;
+                    const buttonEl = this;
+                    
+                    buttonEl.disabled = true;
+                    buttonEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                    
+                    apiCall('enable_destination', { destination_id: destination }).then(result => {
+                        if (result.success) {
+                            // Refresh both lists
+                            loadDisabledDestinations();
+                            loadDestinationVisibility();
+                        } else {
+                            alert('Failed to enable destination: ' + (result.message || 'Unknown error'));
+                            buttonEl.disabled = false;
+                            buttonEl.textContent = 'Enable';
+                        }
+                    }).catch(err => {
+                        alert('Error enabling destination');
+                        buttonEl.disabled = false;
+                        buttonEl.textContent = 'Enable';
+                    });
+                });
+            });
+        }).catch(err => {
+            container.innerHTML = '<p style="color: var(--danger);">Failed to load destinations.</p>';
+            console.error('Failed to load disabled destinations:', err);
         });
     }
 
@@ -1431,15 +1594,15 @@
         logDiv.innerHTML = '<pre class="backup-log-output" style="background: var(--terminal-bg); color: var(--terminal-text); padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></pre>';
         
         const logOutput = logDiv.querySelector('.backup-log-output');
-        let backupId = null;
+        let backupID = null;
         let logOffset = 0;
         let pollInterval = null;
         
         // Function to poll for log updates
         function pollBackupLog() {
-            if (!backupId) return;
+            if (!backupID) return;
             
-            apiCall('get_backup_log', { backup_id: backupId, offset: logOffset }, 'GET')
+            apiCall('get_backup_log', { backup_id: backupID, offset: logOffset }, 'GET')
                 .then(data => {
                     if (data.success && data.content) {
                         // Append new content
@@ -1492,7 +1655,7 @@
             destination: destination
         }).then(data => {
             if (data.backup_id) {
-                backupId = data.backup_id;
+                backupID = data.backup_id;
                 statusMessage.innerHTML = '<div class="loading-spinner"></div> Backup in progress...';
                 progressBar.style.width = '10%';
                 
@@ -1555,15 +1718,15 @@
         logDiv.innerHTML = '<pre class="restore-log-output" style="background: var(--terminal-bg); color: var(--terminal-text); padding: 12px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></pre>';
         
         const logOutput = logDiv.querySelector('.restore-log-output');
-        let restoreId = null;
+        let restoreID = null;
         let logOffset = 0;
         let pollInterval = null;
         
         // Function to poll for log updates
         function pollRestoreLog() {
-            if (!restoreId) return;
+            if (!restoreID) return;
             
-            apiCall('get_restore_log', { restore_id: restoreId, offset: logOffset }, 'GET')
+            apiCall('get_restore_log', { restore_id: restoreID, offset: logOffset }, 'GET')
                 .then(data => {
                     if (data.success && data.content) {
                         // Append new content
@@ -1611,7 +1774,7 @@
             destination: destination
         }).then(data => {
             if (data.restore_id) {
-                restoreId = data.restore_id;
+                restoreID = data.restore_id;
                 statusMessage.innerHTML = '<div class="loading-spinner"></div> Restore in progress...';
                 progressBar.style.width = '10%';
                 
@@ -1693,10 +1856,10 @@
     }
 
     // Remove from Queue
-    window.removeFromQueue = function(jobId) {
+    window.removeFromQueue = function(jobID) {
         if (!confirm('Are you sure you want to remove this job from the queue?')) return;
         
-        apiCall('remove_from_queue', { job_id: jobId }).then(data => {
+        apiCall('remove_from_queue', { job_id: jobID }).then(data => {
             if (data.success) {
                 loadQueue();
             } else {
@@ -1706,12 +1869,12 @@
     };
 
     // Cancel Running Job
-    window.cancelJob = function(jobId) {
+    window.cancelJob = function(jobID) {
         if (!confirm('Are you sure? The job will stop after the current account wraps up.')) return;
         
-        apiCall('cancel_job', { job_id: jobId }).then(data => {
+        apiCall('cancel_job', { job_id: jobID }).then(data => {
             if (data.success) {
-                cancellingJobs.add(jobId);
+                cancellingJobs.add(jobID);
                 alert('Cancel request submitted. Please wait for it to wrap up.');
                 loadQueue();
             } else {
@@ -1721,11 +1884,11 @@
     };
 
     // Remove Schedule
-    window.removeSchedule = function(scheduleId) {
+    window.removeSchedule = function(scheduleID) {
         if (!confirm('Are you sure you want to delete this schedule?')) return;
         
         // Use dedicated API action for deleting schedules
-        apiCall('delete_schedule', { job_id: scheduleId }).then(data => {
+        apiCall('delete_schedule', { job_id: scheduleID }).then(data => {
             if (data.success) {
                 loadSchedules();
             } else {
@@ -1784,7 +1947,7 @@
                 // Sort alphabetically
                 const sorted = data.accounts.sort((a, b) => a.localeCompare(b));
                 accountsList.innerHTML = sorted.map(account => {
-                    // Sanitize account name for use as HTML ID (replace non-alphanumeric)
+                    // Sanitise account name for use as HTML ID (replace non-alphanumeric)
                     const safeId = account.replace(/[^a-zA-Z0-9_-]/g, '_');
                     return `<div class="account-item" onclick="selectDataAccount('${account}')" data-account="${account}">
                         <span class="account-name">${account}</span>
@@ -1890,7 +2053,7 @@
     
     // Update account size display in sidebar
     function updateAccountSizeDisplay(account) {
-        // Sanitize account name for HTML ID lookup (must match ID generation)
+        // Sanitise account name for HTML ID lookup (must match ID generation)
         const safeId = account.replace(/[^a-zA-Z0-9_-]/g, '_');
         const sizeEl = document.getElementById('account-size-' + safeId);
         if (sizeEl) {

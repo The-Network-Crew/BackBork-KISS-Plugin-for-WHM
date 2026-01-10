@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Notification system using text templates for email and Slack.
@@ -47,10 +47,12 @@ class BackBorkNotify {
         'restore_failure' => ['type' => 'Restore', 'status' => 'Failed',    'emoji' => '❌', 'color' => '#dc2626'],
         
         // System events (use system.txt template)
-        'cron_health'    => ['title' => 'Cron Health Alert',       'emoji' => '🚨', 'color' => '#dc2626'],
-        'queue_failure'  => ['title' => 'Queue Processing Failed', 'emoji' => '⚠️', 'color' => '#f97316'],
-        'pruning'        => ['title' => 'Backup Pruning Complete', 'emoji' => '🗑️', 'color' => '#8b5cf6'],
-        'test'           => ['title' => 'Test Notification',       'emoji' => '🧪', 'color' => '#6366f1'],
+        'cron_health'     => ['title' => 'Cron Health Alert',       'emoji' => '🚨', 'color' => '#dc2626'],
+        'queue_failure'   => ['title' => 'Queue Processing Failed', 'emoji' => '⚠️', 'color' => '#f97316'],
+        'pruning'         => ['title' => 'Backup Pruning Complete', 'emoji' => '🗑️', 'color' => '#8b5cf6'],
+        'update_success'  => ['title' => 'Plugin Update Complete',  'emoji' => '🚀', 'color' => '#059669'],
+        'update_failure'  => ['title' => 'Plugin Update Failed',    'emoji' => '❌', 'color' => '#dc2626'],
+        'test'            => ['title' => 'Test Notification',       'emoji' => '🧪', 'color' => '#6366f1'],
     ];
     
     // ========================================================================
@@ -363,7 +365,7 @@ class BackBorkNotify {
     /**
      * Send Slack webhook notification
      * 
-     * Format optimized for mobile: emoji [hostname] Action Status
+     * Format optimised for mobile: emoji [hostname] Action Status
      * Body contains only info not already visible (no repeated hostname/action)
      */
     public function sendSlack($webhookUrl, $message) {

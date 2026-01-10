@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Cron-triggered processor for backup queue items and recurring schedules.
@@ -56,7 +56,7 @@ class BackBorkQueueProcessor {
     // ========================================================================
     
     /**
-     * Initialize the Queue Processor
+     * Initialise the Queue Processor
      * Creates instances of required managers
      */
     public function __construct() {
@@ -245,34 +245,36 @@ class BackBorkQueueProcessor {
      * 
      * Delegates actual backup execution to BackupManager.
      * 
-     * @param string $jobId Queue job ID for progress updates
+     * @param string $jobID Queue job ID for progress updates
      * @param array $item Queue item data with accounts, destination, user
      * @return array Result from BackupManager
      */
-    private function processBackupItem($jobId, $item) {
+    private function processBackupItem($jobID, $item) {
         $accounts = $item['accounts'] ?? [];
         $destination = $item['destination'] ?? 'local';
         $user = $item['user'] ?? 'root';
+        $scheduleID = $item['schedule_id'] ?? null;
+        $retention = (int)($item['retention'] ?? 30);
         
         if (empty($accounts)) {
             return ['success' => false, 'message' => 'No accounts specified'];
         }
         
         // Set initial progress in running job
-        $this->queue->updateJob($jobId, [
+        $this->queue->updateJob($jobID, [
             'accounts_total' => count($accounts),
             'accounts_completed' => 0
         ], BackBorkQueue::getRunningDir());
         
         // Create progress callback for BackupManager
-        $progressCallback = function($completed) use ($jobId) {
-            $this->queue->updateJob($jobId, [
+        $progressCallback = function($completed) use ($jobID) {
+            $this->queue->updateJob($jobID, [
                 'accounts_completed' => $completed
             ], BackBorkQueue::getRunningDir());
         };
         
-        // Execute backup via BackupManager with progress callback and job ID for cancellation
-        return $this->backupManager->createBackup($accounts, $destination, $user, $progressCallback, $jobId);
+        // Execute backup via BackupManager with progress callback, job ID, and schedule info
+        return $this->backupManager->createBackup($accounts, $destination, $user, $progressCallback, $jobID, $scheduleID, $retention);
     }
     
     /**
@@ -280,11 +282,11 @@ class BackBorkQueueProcessor {
      * 
      * Delegates actual restore execution to RestoreManager.
      * 
-     * @param string $jobId Queue job ID for progress updates
+     * @param string $jobID Queue job ID for progress updates
      * @param array $item Queue item data with backup_file, destination, options
      * @return array Result from RestoreManager
      */
-    private function processRestoreItem($jobId, $item) {
+    private function processRestoreItem($jobID, $item) {
         $backupFile = $item['backup_file'] ?? '';
         $destination = $item['destination'] ?? 'local';
         $options = $item['options'] ?? [];
@@ -295,7 +297,7 @@ class BackBorkQueueProcessor {
         }
         
         // Set progress for single-account restore (1 total, 0 completed initially)
-        $this->queue->updateJob($jobId, [
+        $this->queue->updateJob($jobID, [
             'accounts_total' => 1,
             'accounts_completed' => 0
         ], BackBorkQueue::getRunningDir());
@@ -305,7 +307,7 @@ class BackBorkQueueProcessor {
         $result = $restoreManager->restoreAccount($backupFile, $destination, $options, $user);
         
         // Mark complete
-        $this->queue->updateJob($jobId, [
+        $this->queue->updateJob($jobID, [
             'accounts_completed' => 1
         ], BackBorkQueue::getRunningDir());
         
@@ -338,7 +340,7 @@ class BackBorkQueueProcessor {
         
         // Check each schedule
         foreach ($scheduleFiles as $file) {
-            $scheduleId = basename($file, '.json');
+            $scheduleID = basename($file, '.json');
             $schedule = json_decode(file_get_contents($file), true);
             if (!$schedule) {
                 continue;
@@ -385,7 +387,11 @@ class BackBorkQueueProcessor {
             }
             
             // Add schedule's backup job to the queue
-            $options = ['schedule_id' => $scheduleId];
+            $retention = (int)($schedule['retention'] ?? 30);
+            $options = [
+                'schedule_id' => $scheduleID,
+                'retention' => $retention
+            ];
             $this->queue->addToQueue($accounts, $destination, 'once', $user, $options);
 
             // Update schedule metadata for next run
@@ -394,7 +400,7 @@ class BackBorkQueueProcessor {
             $schedule['next_run'] = $this->queue->calculateNextRun($scheduleType, $preferredHour, $dayOfWeek);
             file_put_contents($file, json_encode($schedule, JSON_PRETTY_PRINT));
             
-            $results[$scheduleId] = 'Queued';
+            $results[$scheduleID] = 'Queued';
         }
         
         return [
@@ -553,7 +559,7 @@ class BackBorkQueueProcessor {
         foreach ($files as $file) {
             $job = json_decode(file_get_contents($file), true);
             if ($job && isset($job['status']) && $job['status'] === 'failed') {
-                $jobId = $job['id'];
+                $jobID = $job['id'];
                 
                 // Reset job state for retry
                 $job['status'] = 'queued';
@@ -562,8 +568,8 @@ class BackBorkQueueProcessor {
                 unset($job['completed_at']);  // Remove completion timestamp
                 
                 // Move back to queue
-                file_put_contents($queueDir . '/' . $jobId . '.json', json_encode($job, JSON_PRETTY_PRINT));
-                chmod($queueDir . '/' . $jobId . '.json', 0600);
+                file_put_contents($queueDir . '/' . $jobID . '.json', json_encode($job, JSON_PRETTY_PRINT));
+                chmod($queueDir . '/' . $jobID . '.json', 0600);
                 unlink($file);
                 $retried++;
             }
@@ -782,10 +788,11 @@ class BackBorkQueueProcessor {
         $totalPruned = 0;
         $parser = new BackBorkDestinationsParser();
         $validator = new BackBorkDestinationsValidator();
+        $manifest = new BackBorkManifest();
         
         // Process each schedule
         foreach ($scheduleFiles as $file) {
-            $scheduleId = basename($file, '.json');
+            $scheduleID = basename($file, '.json');
             $schedule = json_decode(file_get_contents($file), true);
             
             if (!$schedule) {
@@ -794,24 +801,38 @@ class BackBorkQueueProcessor {
             
             // Get schedule owner for logging
             $scheduleUser = $schedule['user'] ?? 'root';
-            $scheduleName = $schedule['name'] ?? $scheduleId;
+            $scheduleName = $schedule['name'] ?? $scheduleID;
             
             // Get retention count (0 = unlimited, skip pruning)
             $retentionCount = (int)($schedule['retention'] ?? 30);
             if ($retentionCount <= 0) {
-                $results[$scheduleId] = ['skipped' => true, 'reason' => 'unlimited retention'];
+                $results[$scheduleID] = ['skipped' => true, 'reason' => 'unlimited retention'];
                 continue;
             }
             
             // Get destination for this schedule
-            $destinationId = $schedule['destination'] ?? 'local';
-            $destination = $parser->getDestinationById($destinationId);
+            $destinationID = $schedule['destination'] ?? 'local';
+            $destination = $parser->getDestinationByID($destinationID);
             
             if (!$destination) {
-                $results[$scheduleId] = ['skipped' => true, 'reason' => 'invalid destination'];
+                $results[$scheduleID] = ['skipped' => true, 'reason' => 'invalid destination'];
                 // Log invalid destination to GUI Log
                 BackBorkLog::logEvent($scheduleUser, 'prune', [$scheduleName], false, 
-                    "Pruning skipped for schedule '{$scheduleName}': invalid destination '{$destinationId}'", 'cron');
+                    "Pruning skipped for schedule '{$scheduleName}': invalid destination '{$destinationID}'", 'cron');
+                continue;
+            }
+            
+            // Skip if destination is disabled
+            if (empty($destination['enabled'])) {
+                $results[$scheduleID] = ['skipped' => true, 'reason' => 'destination disabled'];
+                BackBorkLog::logEvent($scheduleUser, 'prune', [$scheduleName], false, 
+                    "Pruning skipped for schedule '{$scheduleName}': destination '{$destination['name']}' is disabled", 'cron');
+                continue;
+            }
+            
+            // Skip if no manifest exists (legacy or no backups yet)
+            if (!$manifest->hasManifest($scheduleID)) {
+                $results[$scheduleID] = ['skipped' => true, 'reason' => 'no manifest'];
                 continue;
             }
             
@@ -828,21 +849,52 @@ class BackBorkQueueProcessor {
                 $accounts = array_column($accessibleAccounts, 'user');
             }
             
-            // Prune backups for each account in this schedule
+            // Get transport for this destination
+            $transport = $validator->getTransportForDestination($destination);
+            
+            // Prune backups for each account using manifest
             $schedulePruned = 0;
             $prunedFiles = [];
+            $filesToRemove = [];
+            
             foreach ($accounts as $account) {
-                $accountPruneResult = $this->pruneAccountBackups($account, $destination, $retentionCount, $validator);
-                $schedulePruned += $accountPruneResult['count'];
-                if (!empty($accountPruneResult['files'])) {
-                    $prunedFiles = array_merge($prunedFiles, $accountPruneResult['files']);
+                // Get expired entries from manifest for this account
+                $expiredEntries = $manifest->getExpiredEntries($scheduleID, $account, $retentionCount);
+                
+                foreach ($expiredEntries as $entry) {
+                    $filename = $entry['file'] ?? '';
+                    if (empty($filename)) continue;
+                    
+                    // Delete the main backup file
+                    $remotePath = $account . '/' . $filename;
+                    $deleteResult = $transport->delete($remotePath, $destination);
+                    
+                    if ($deleteResult['success']) {
+                        $schedulePruned++;
+                        $prunedFiles[] = $remotePath;
+                        $filesToRemove[] = $filename;
+                        BackBorkConfig::debugLog("pruneOldBackups: Deleted {$filename} for schedule {$scheduleID}");
+                        
+                        // Also delete associated database backup if exists
+                        if (!empty($entry['db_file'])) {
+                            $dbPath = $account . '/' . $entry['db_file'];
+                            $transport->delete($dbPath, $destination);
+                        }
+                    } else {
+                        BackBorkConfig::debugLog("pruneOldBackups: Failed to delete {$filename}: " . ($deleteResult['message'] ?? 'Unknown error'));
+                    }
                 }
             }
             
-            $results[$scheduleId] = ['pruned' => $schedulePruned, 'retention_count' => $retentionCount];
+            // Update manifest to remove pruned entries
+            if (!empty($filesToRemove)) {
+                $manifest->removeEntries($scheduleID, $filesToRemove);
+            }
+            
+            $results[$scheduleID] = ['pruned' => $schedulePruned, 'retention_count' => $retentionCount];
             $totalPruned += $schedulePruned;
             
-            // Log pruning to GUI Log for this schedule (always, even if 0 pruned)
+            // Log pruning to GUI Log for this schedule (only if something pruned)
             if ($schedulePruned > 0) {
                 $fileList = implode(', ', array_slice($prunedFiles, 0, 10));
                 if (count($prunedFiles) > 10) {
@@ -870,107 +922,5 @@ class BackBorkQueueProcessor {
             'pruned' => $totalPruned,
             'details' => $results
         ];
-    }
-    
-    /**
-     * Prune old backups for a specific account at a destination.
-     * 
-     * COUNT-BASED RETENTION: Keeps exactly $retentionCount backups,
-     * deletes the oldest ones that exceed this limit.
-     * 
-     * If backup count <= retention count, nothing is deleted.
-     * This is inherently safe during backup failures.
-     * 
-     * Supports both Local and Remote (SFTP/FTP) destinations via the
-     * Native transport layer which uses cPanel's Cpanel::Transport::Files.
-     * 
-     * @param string $account Account username
-     * @param array $destination Destination configuration
-     * @param int $retentionCount Number of backups to keep
-     * @param BackBorkDestinationsValidator $validator Validator instance for transport
-     * @return array ['count' => int, 'files' => array] Number of backups pruned and list of deleted files
-     */
-    private function pruneAccountBackups($account, $destination, $retentionCount, $validator) {
-        $pruned = 0;
-        $deletedFiles = [];
-        
-        // Get appropriate transport for this destination type
-        $transport = $validator->getTransportForDestination($destination);
-        
-        // List backups in account subdirectory
-        $files = $transport->listFiles($account . '/', $destination);
-        
-        if (empty($files)) {
-            return ['count' => 0, 'files' => []];
-        }
-        
-        // Collect files with resolved timestamps for sorting
-        $backups = [];
-        foreach ($files as $fileInfo) {
-            $filename = $fileInfo['file'] ?? '';
-            $mtime = $fileInfo['mtime'] ?? 0;
-            
-            // Try to extract timestamp from filename if mtime not available
-            if ($mtime <= 0) {
-                if (preg_match('/_([0-9]{8}_[0-9]{6})\.tar\.gz$/', $filename, $matches)) {
-                    $dateStr = $matches[1];
-                    $mtime = strtotime(
-                        substr($dateStr, 0, 4) . '-' .  // Year
-                        substr($dateStr, 4, 2) . '-' .  // Month
-                        substr($dateStr, 6, 2) . ' ' .  // Day
-                        substr($dateStr, 9, 2) . ':' .  // Hour
-                        substr($dateStr, 11, 2) . ':' . // Minute
-                        substr($dateStr, 13, 2)         // Second
-                    );
-                }
-            }
-            
-            // Only include files with determinable age
-            if ($mtime > 0) {
-                $backups[] = [
-                    'file' => $filename,
-                    'mtime' => $mtime
-                ];
-            }
-        }
-        
-        $totalBackups = count($backups);
-        
-        // If we have retention count or fewer backups, nothing to prune
-        if ($totalBackups <= $retentionCount) {
-            return ['count' => 0, 'files' => []];
-        }
-        
-        // Sort by mtime descending (newest first)
-        usort($backups, function($a, $b) {
-            return $b['mtime'] - $a['mtime'];
-        });
-        
-        // Calculate how many to delete (excess beyond retention count)
-        $toDelete = $totalBackups - $retentionCount;
-        
-        // Get the oldest backups (at the end of the sorted array)
-        $backupsToDelete = array_slice($backups, -$toDelete);
-        
-        BackBorkConfig::debugLog('pruneAccountBackups: ' . $account . ' has ' . $totalBackups . 
-                                ' backups, retention is ' . $retentionCount . ', deleting ' . $toDelete);
-        
-        // Delete the oldest backups
-        foreach ($backupsToDelete as $backup) {
-            $filename = $backup['file'];
-            $remotePath = $account . '/' . $filename;
-            $deleteResult = $transport->delete($remotePath, $destination);
-            
-            if ($deleteResult['success']) {
-                $pruned++;
-                $deletedFiles[] = $account . '/' . $filename;
-                BackBorkConfig::debugLog('pruneAccountBackups: Deleted ' . $filename . 
-                                        ' (age: ' . round((time() - $backup['mtime']) / 86400) . ' days)');
-            } else {
-                BackBorkConfig::debugLog('Failed to prune backup: ' . $filename . ' - ' . ($deleteResult['message'] ?? 'Unknown error'));
-            }
-        }
-        
-        return ['count' => $pruned, 'files' => $deletedFiles];
     }
 }

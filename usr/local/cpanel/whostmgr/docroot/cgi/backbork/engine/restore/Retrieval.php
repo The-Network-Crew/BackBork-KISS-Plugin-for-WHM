@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Backup file retrieval service for restore operations.
@@ -40,7 +40,7 @@ class BackBorkRetrieval {
     private $destinations;
     
     /**
-     * Constructor - Initialize destination parser.
+     * Constructor - Initialise destination parser.
      */
     public function __construct() {
         $this->destinations = new BackBorkDestinationsParser();
@@ -51,14 +51,14 @@ class BackBorkRetrieval {
      * For local destinations, returns path directly.
      * For remote destinations, downloads file to temp directory.
      * 
-     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $destinationID Destination ID from WHM transport config
      * @param string $backupFile Backup file path at destination
      * @param string $localPath Optional specific local path to save to
      * @return array Result with success status and local_path
      */
-    public function retrieveBackup($destinationId, $backupFile, $localPath = null) {
+    public function retrieveBackup($destinationID, $backupFile, $localPath = null) {
         // Look up destination configuration by ID
-        $destination = $this->destinations->getDestinationById($destinationId);
+        $destination = $this->destinations->getDestinationByID($destinationID);
         
         // Validate destination exists
         if (!$destination) {
@@ -115,13 +115,13 @@ class BackBorkRetrieval {
      * List available backups from a destination.
      * Parses filenames to extract account names and timestamps.
      * 
-     * @param string $destinationId Destination ID from WHM transport config
+     * @param string $destinationID Destination ID from WHM transport config
      * @param string $accountFilter Optional account filter to narrow results
      * @return array Result with success status and list of backups
      */
-    public function listAvailableBackups($destinationId, $accountFilter = null) {
+    public function listAvailableBackups($destinationID, $accountFilter = null) {
         // Look up destination configuration by ID
-        $destination = $this->destinations->getDestinationById($destinationId);
+        $destination = $this->destinations->getDestinationByID($destinationID);
         
         // Validate destination exists
         if (!$destination) {
@@ -164,7 +164,7 @@ class BackBorkRetrieval {
                 'account' => $account,
                 'size' => $file['size'] ?? 0,
                 'date' => $timestamp ?? ($file['date'] ?? 'Unknown'),
-                'destination' => $destinationId
+                'destination' => $destinationID
             ];
         }
         

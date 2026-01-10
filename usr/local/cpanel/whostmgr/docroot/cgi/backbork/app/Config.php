@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Manages all configuration storage for the plugin (JSON-based).
@@ -35,7 +35,7 @@ class BackBorkConfig {
     const GLOBAL_CONFIG_FILE = '/usr/local/cpanel/3rdparty/backbork/global.json';
     
     /**
-     * Constructor - Initialize config directories
+     * Constructor - Initialise config directories
      * 
      * Creates the required directory structure if it doesn't exist.
      * Called automatically when Config is instantiated.
@@ -247,22 +247,22 @@ class BackBorkConfig {
     /**
      * Check if a specific destination is root-only
      * 
-     * @param string $destId Destination ID
+     * @param string $destinationID Destination ID
      * @return bool True if destination is root-only
      */
-    public static function isDestinationRootOnly($destId) {
+    public static function isDestinationRootOnly($destinationID) {
         $rootOnly = self::getRootOnlyDestinations();
-        return in_array($destId, $rootOnly);
+        return in_array($destinationID, $rootOnly);
     }
     
     /**
      * Set a destination's root-only visibility
      * 
-     * @param string $destId Destination ID
+     * @param string $destinationID Destination ID
      * @param bool $rootOnly True to make root-only, false for all users
      * @return bool True on success
      */
-    public static function setDestinationRootOnly($destId, $rootOnly) {
+    public static function setDestinationRootOnly($destinationID, $rootOnly) {
         // Get current global config
         $config = [];
         if (file_exists(self::GLOBAL_CONFIG_FILE)) {
@@ -277,12 +277,12 @@ class BackBorkConfig {
         
         if ($rootOnly) {
             // Add to list if not already there
-            if (!in_array($destId, $rootOnlyDests)) {
-                $rootOnlyDests[] = $destId;
+            if (!in_array($destinationID, $rootOnlyDests)) {
+                $rootOnlyDests[] = $destinationID;
             }
         } else {
             // Remove from list
-            $rootOnlyDests = array_values(array_diff($rootOnlyDests, [$destId]));
+            $rootOnlyDests = array_values(array_diff($rootOnlyDests, [$destinationID]));
         }
         
         $config['root_only_destinations'] = $rootOnlyDests;
@@ -294,13 +294,13 @@ class BackBorkConfig {
     /**
      * Get the path to a user's configuration file
      * 
-     * Sanitizes the username to prevent directory traversal attacks.
+     * Sanitises the username to prevent directory traversal attacks.
      * 
      * @param string $user Username
      * @return string Full path to user's config JSON file
      */
     private function getUserConfigFile($user) {
-        // Sanitize username - only allow alphanumeric, underscore, hyphen
+        // Sanitise username - only allow alphanumeric, underscore, hyphen
         $safeUser = preg_replace('/[^a-zA-Z0-9_-]/', '', $user);
         return self::CONFIG_DIR . '/users/' . $safeUser . '.json';
     }
@@ -339,7 +339,7 @@ class BackBorkConfig {
     /**
      * Save configuration for a specific user
      * 
-     * Sanitizes input, merges with existing config, and saves to disk.
+     * Sanitises input, merges with existing config, and saves to disk.
      * Also syncs certain settings to global config for root user.
      * 
      * @param string $user Username
@@ -349,12 +349,12 @@ class BackBorkConfig {
     public function saveUserConfig($user, $config) {
         $configFile = $this->getUserConfigFile($user);
         
-        // Sanitize all input values for security
-        $sanitized = $this->sanitizeConfig($config);
+        // Sanitise all input values for security
+        $sanitised = $this->sanitiseConfig($config);
         
         // Merge with existing config (new values override)
         $existing = $this->getUserConfig($user);
-        $merged = array_merge($existing, $sanitized);
+        $merged = array_merge($existing, $sanitised);
         $merged['updated_at'] = date('Y-m-d H:i:s');
         
         // Write to disk with pretty formatting
@@ -377,7 +377,7 @@ class BackBorkConfig {
             
             // Build human-readable list of changes
             $changes = [];
-            foreach ($sanitized as $key => $value) {
+            foreach ($sanitised as $key => $value) {
                 if (is_bool($value)) {
                     $changes[] = $key . '=' . ($value ? 'true' : 'false');
                 } elseif (is_array($value)) {
@@ -491,22 +491,22 @@ class BackBorkConfig {
     }
     
     /**
-     * Sanitize configuration input for security
+     * Sanitise configuration input for security
      * 
      * Validates and cleans all user-provided config values
      * to prevent injection attacks and invalid data.
      * 
      * @param array $config Raw user input
-     * @return array Sanitized configuration
+     * @return array Sanitised configuration
      */
-    private function sanitizeConfig($config) {
-        $sanitized = [];
+    private function sanitiseConfig($config) {
+        $sanitised = [];
         
         // Email - validate format
         if (isset($config['notify_email'])) {
             $email = filter_var($config['notify_email'], FILTER_SANITIZE_EMAIL);
             if (filter_var($email, FILTER_VALIDATE_EMAIL) || empty($email)) {
-                $sanitized['notify_email'] = $email;
+                $sanitised['notify_email'] = $email;
             }
         }
         
@@ -515,7 +515,7 @@ class BackBorkConfig {
             $webhook = filter_var($config['slack_webhook'], FILTER_SANITIZE_URL);
             // Only allow Slack webhook URLs or empty
             if (empty($webhook) || preg_match('/^https:\/\/hooks\.slack\.com\//', $webhook)) {
-                $sanitized['slack_webhook'] = $webhook;
+                $sanitised['slack_webhook'] = $webhook;
             }
         }
         
@@ -528,7 +528,7 @@ class BackBorkConfig {
         ];
         foreach ($booleans as $key) {
             if (isset($config[$key])) {
-                $sanitized[$key] = (bool)$config[$key];
+                $sanitised[$key] = (bool)$config[$key];
             }
         }
         
@@ -536,34 +536,34 @@ class BackBorkConfig {
         if (isset($config['compression_level'])) {
             $level = (int)$config['compression_level'];
             if ($level >= 1 && $level <= 9) {
-                $sanitized['compression_level'] = (string)$level;
+                $sanitised['compression_level'] = (string)$level;
             }
         }
         
-        // Temp directory - sanitize path characters
+        // Temp directory - sanitise path characters
         if (isset($config['temp_directory'])) {
             $dir = preg_replace('/[^a-zA-Z0-9_\/\-.]/', '', $config['temp_directory']);
             // Must be an absolute path
             if (strpos($dir, '/') === 0) {
-                $sanitized['temp_directory'] = $dir;
+                $sanitised['temp_directory'] = $dir;
             }
         }
         
-        // Exclude paths - sanitize path characters
+        // Exclude paths - sanitise path characters
         if (isset($config['exclude_paths'])) {
             $paths = preg_replace('/[^a-zA-Z0-9_\/\-.\n]/', '', $config['exclude_paths']);
-            $sanitized['exclude_paths'] = $paths;
+            $sanitised['exclude_paths'] = $paths;
         }
         
         // Retention - validate range 1-365 days
         if (isset($config['default_retention'])) {
             $retention = (int)$config['default_retention'];
             if ($retention >= 1 && $retention <= 365) {
-                $sanitized['default_retention'] = $retention;
+                $sanitised['default_retention'] = $retention;
             }
         }
         
-        // Pass through other recognized config keys without modification
+        // Pass through other recognised config keys without modification
         // These are validated elsewhere or are internal settings
         $passthrough = [
             'mysql_version', 'dbbackup_type', 'compression_option',
@@ -582,11 +582,11 @@ class BackBorkConfig {
         
         foreach ($passthrough as $key) {
             if (isset($config[$key])) {
-                $sanitized[$key] = $config[$key];
+                $sanitised[$key] = $config[$key];
             }
         }
         
-        return $sanitized;
+        return $sanitised;
     }
     
     /**

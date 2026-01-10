@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Access Control List management for WHM resellers and root users.
@@ -46,7 +46,7 @@ class BackBorkACL {
     // ========================================================================
     
     /**
-     * Initialize ACL system
+     * Initialise ACL system
      * Detects current user and loads their permissions
      */
     public function __construct() {

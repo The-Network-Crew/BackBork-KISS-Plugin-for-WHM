@@ -19,6 +19,7 @@ Everything you need to know about how BackBork works under the hood.
 | [📄 File Formats](#-file-formats) | JSON structures |
 | [🔌 API Endpoints](#-api-endpoints) | Available actions |
 | [🚀 Update Notifications](#-update-notifications) | How version checking works |
+| [🔄 Self-Update](#-self-update) | One-click update process |
 | [🔒 Security](#-security) | How we keep things safe |
 | [🐛 Debugging](#-debugging) | Troubleshooting tips |
 
@@ -339,7 +340,7 @@ BackBork supports hot database backups using mariadb-backup or mysqlbackup.
 |------|--------|
 | 1️⃣ | pkgacct runs with `--dbbackup=schema` (schema only, no data) |
 | 2️⃣ | mariadb-backup/mysqlbackup runs to capture DB data |
-| 3️⃣ | Both files uploaded: `backup-*` + `db-backup-*` |
+| 3️⃣ | Both files uploaded: `backup-*` + `db-*` |
 | 4️⃣ | On restore: main backup restored first (includes schema) |
 | 5️⃣ | DB data restored from hot backup file |
 | 6️⃣ | Both temp files cleaned up |
@@ -352,6 +353,16 @@ BackBork supports hot database backups using mariadb-backup or mysqlbackup.
 | `mariadb-backup` | Hot backup for MariaDB (no locks!) |
 | `mysqlbackup` | MySQL Enterprise Backup (commercial) |
 | `skip` | Skip databases entirely |
+
+#### Filename Formats
+
+| File Type | Format |
+|-----------|--------|
+| Main backup | `backup-MM.DD.YYYY_HH-MM-SS_<account>.tar.gz` |
+| Hot DB backup | `db-MM.DD.YYYY_HH-MM-SS_<account>.tar.gz` |
+
+> [!NOTE]
+> **Standardised in v1.5.0:** Hot DB backup filenames now follow the same timestamp format as main backups, ensuring consistent naming and easier management.
 
 ---
 
@@ -383,6 +394,7 @@ BackBork supports hot database backups using mariadb-backup or mysqlbackup.
   ├── running/
   ├── restores/
   ├── completed/
+  ├── manifests/
   └── logs/
 ```
 
@@ -395,6 +407,10 @@ BackBork supports hot database backups using mariadb-backup or mysqlbackup.
 | cron.php | 755 | Executable |
 | Data directories | 700 | Root only |
 | Config files | 600 | Root only |
+| Backup archives | 600 | Created with restricted permissions for security |
+
+> [!NOTE]
+> **New in v1.5.0:** Backup archives are now created with `chmod 600` to prevent unauthorized access to sensitive account data.
 
 ### ⏰ Cron Jobs
 
@@ -415,10 +431,13 @@ BackBork supports hot database backups using mariadb-backup or mysqlbackup.
 | `BackBorkBackup` | 📦 Create backups, run pkgacct |
 | `BackBorkRestore` | 🔄 Restore operations |
 | `BackBorkQueue` | 📋 Job queue management |
+| `BackBorkQueueProcessor` | 🔄 Process queue, schedules, and retention pruning |
 | `BackBorkConfig` | ⚙️ Per-user settings |
 | `BackBorkDestinations` | 📍 Read WHM destinations |
 | `BackBorkNotify` | 📧 Email/Slack alerts |
 | `BackBorkACL` | 🔒 Access control |
+| `BackBorkManifest` | 📋 Track backup-schedule associations for pruning |
+| `BackBorkSQL` | 🗄️ Hot database backups (mariadb-backup/mysqlbackup) |
 
 ---
 
@@ -472,6 +491,56 @@ Running jobs can be cancelled via the Queue GUI or API. Cancellation is graceful
 
 This ensures backups are never interrupted mid-process — the current account always finishes before the job stops.
 
+### 📋 Manifest-Based Backup Tracking
+
+> [!NOTE]
+> **New in v1.5.0:** BackBork now tracks backup-to-schedule associations using a manifest system for intelligent pruning.
+
+**Location:** `/usr/local/cpanel/3rdparty/backbork/manifests/`
+
+Each destination has its own manifest file tracking which backups belong to which schedules:
+
+```
+manifests/
+├── local.json           # Manifest for Local destination
+├── SFTP_Server.json     # Manifest for SFTP_Server destination
+└── S3_Backup.json       # Manifest for S3_Backup destination
+```
+
+**Manifest Entry Format:**
+```json
+{
+  "entries": [
+    {
+      "schedule_id": "sched_abc123",
+      "account": "someuser",
+      "filename": "backup-01.15.2025_02-00-00_someuser.tar.gz",
+      "db_filename": "db-01.15.2025_02-00-00_someuser.tar.gz",
+      "created_at": "2025-01-15T02:05:00Z"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `schedule_id` | Schedule that created this backup (or `_manual` for one-time backups) |
+| `account` | Account username |
+| `filename` | Main backup archive filename |
+| `db_filename` | Hot DB backup filename (if applicable) |
+| `created_at` | When the backup was created |
+
+**Why Manifests?**
+
+The manifest system solves the problem of mixed retention policies:
+- Different schedules can target the same account with different retentions
+- Daily schedule keeps 7 backups, monthly schedule keeps 12
+- Without tracking, we couldn't know which backups belong to which schedule
+- Manifests let each schedule manage its own backups independently
+
+**Special Values:**
+- `_manual` — One-time/immediate backups (never auto-pruned)
+
 ---
 
 ## 📤 Backup Flow
@@ -493,35 +562,45 @@ BackBork provides real-time progress logging throughout the backup process. Each
          │
          ▼
     ┌─────────┐
-    │ ✅ Dest │  [STEP 1/5] Validate destination
+    │ ✅ Dest │  [STEP 1/6] Validate destination (exists + enabled)
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ 📧 Start│  [STEP 2/5] Send notification (if enabled)
+    │ 📧 Start│  [STEP 2/6] Send notification (if enabled)
     └────┬────┘
          │
          ▼
     ┌─────────────────────────────────────────┐
-    │ 📦 [STEP 3/5] Process Each Account      │
+    │ 📦 [STEP 3/6] Process Each Account      │
     │                                         │
     │  [3a] Prepare environment               │
     │  [3b] Run pkgacct                       │
     │  [3c] Hot DB backup (if configured)     │
-    │  [3d] Upload to destination             │
-    │  [3e] Cleanup temp files                │
+    │  [3d] chmod 600 on archive              │
+    │  [3e] Upload to destination             │
+    │  [3f] Write manifest entry              │
+    │  [3g] Cleanup temp files                │
     └────┬────────────────────────────────────┘
          │
          ▼
     ┌─────────┐
-    │ 📊 Sum  │  [STEP 4/5] Summary (success/fail counts)
+    │ 📊 Sum  │  [STEP 4/6] Summary (success/fail counts)
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ 📧 Done │  [STEP 5/5] Send completion notification
+    │ 🗑️ Prune│  [STEP 5/6] Prune old backups (scheduled jobs only)
+    └────┬────┘
+         │
+         ▼
+    ┌─────────┐
+    │ 📧 Done │  [STEP 6/6] Send completion notification
     └─────────┘
 ```
+
+> [!NOTE]
+> **Destination Validation:** If a destination is disabled in WHM, scheduled backups to that destination are skipped entirely. One-time backups will warn but proceed since the user explicitly requested the backup.
 
 ### Backup Log File
 
@@ -910,12 +989,12 @@ BackBork checks for new versions on startup by comparing the local version again
 
 ### API Response
 
-The `get_version` endpoint returns update status:
+The `check_update` endpoint returns update status:
 
 ```json
 {
   "success": true,
-  "version": "1.3.10",
+  "local_version": "1.3.10",
   "remote_version": "1.3.11",
   "update_available": true
 }
@@ -923,6 +1002,81 @@ The `get_version` endpoint returns update status:
 
 > [!NOTE]
 > Version checks are non-blocking. If GitHub is unreachable, the GUI loads normally without update information.
+
+---
+
+## 🔄 Self-Update
+
+BackBork includes a one-click self-update feature that downloads and installs the latest version from GitHub.
+
+### How It Works
+
+1. **Trigger**: Click "Update Now" in the update notification banner (root only)
+2. **Execution**: The updater script runs from the config directory (persists across updates)
+3. **Download**: Latest release downloaded from GitHub main branch
+4. **Install**: Runs `install.sh` from the downloaded package
+5. **Notification**: Emails root + plugin contacts, plus Slack if configured
+
+### Update Process Flow
+
+```
+User clicks "Update Now"
+        ↓
+API triggers updater.sh from config dir
+        ↓
+Background process spawned (nohup)
+        ↓
+Download latest from GitHub
+        ↓
+Extract and run install.sh
+        ↓
+Send notifications (email + Slack)
+```
+
+### Updater Script Location
+
+The updater script is stored permanently in the config directory:
+```
+/usr/local/cpanel/3rdparty/backbork/updater.sh
+```
+
+This location ensures the script survives plugin updates and can be retained during uninstallation.
+
+### Notifications
+
+Updates send notifications to:
+
+| Recipient | Purpose |
+|-----------|---------|
+| **Root Email** | System's /etc/aliases root forward (ensures visibility even if plugin fails) |
+| **Plugin Email** | User-configured notification email from settings |
+| **Slack** | Plugin-configured webhook (if set) |
+
+### Update Log
+
+All update activity is logged to:
+```
+/usr/local/cpanel/3rdparty/backbork/logs/update.log
+```
+
+### API Endpoint
+
+The `perform_update` endpoint (root only) triggers the update:
+
+```json
+// Request
+POST /cgi/backbork/index.php?action=perform_update
+
+// Response
+{
+  "success": true,
+  "message": "Update started. You will be notified when complete.",
+  "log_file": "/usr/local/cpanel/3rdparty/backbork/logs/update.log"
+}
+```
+
+> [!WARNING]
+> The update runs in the background. The web interface may become temporarily unavailable during the install process. Refresh the page after receiving the completion notification.
 
 ---
 
@@ -983,7 +1137,7 @@ tail -f /usr/local/cpanel/logs/cpbackup/*
 | 📖 **README** | [README.md](README.md) |
 | 🔌 **API Reference** | [API.md](API.md) |
 | ⏰ **Cron Configuration** | [CRON.md](CRON.md) |
-| 🐛 **Report Issues** | [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/issues) |
+| 🐛 **Report Issues** | [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/issues) |
 
 ---
 

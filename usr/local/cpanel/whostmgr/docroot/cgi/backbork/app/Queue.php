@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Data layer for managing backup/restore jobs and recurring schedules.
@@ -58,7 +58,7 @@ class BackBorkQueue {
     // ========================================================================
     
     /**
-     * Initialize Queue Manager
+     * Initialise Queue Manager
      * Creates required storage directories if they don't exist
      */
     public function __construct() {
@@ -100,7 +100,7 @@ class BackBorkQueue {
      * - A recurring schedule in schedules/ (hourly, daily, weekly, monthly)
      * 
      * @param array $accounts Account usernames to backup (or ['*'] for all)
-     * @param string $destinationId Backup destination identifier
+     * @param string $destinationID Backup destination identifier
      * @param string $schedule Schedule type: 'once', 'hourly', 'daily', 'weekly', 'monthly'
      * @param string $user Username creating this job/schedule
      * @param array $options Optional settings:
@@ -110,24 +110,44 @@ class BackBorkQueue {
      *                       - all_accounts: Boolean for dynamic account resolution
      * @return array Result with success status, message, and job_id
      */
-    public function addToQueue($accounts, $destinationId, $schedule = 'once', $user = 'root', $options = []) {
+    public function addToQueue($accounts, $destinationID, $schedule = 'once', $user = 'root', $options = []) {
         // Generate unique job identifier
-        $jobId = $this->generateJobId();
+        $jobID = $this->generateJobID();
         
         // Resolve destination name for display (store once at creation)
-        $destinationName = $destinationId;
+        $destinationName = $destinationID;
         $parser = new BackBorkDestinationsParser();
-        $dest = $parser->getDestinationById($destinationId);
-        if ($dest && !empty($dest['name'])) {
+        $dest = $parser->getDestinationByID($destinationID);
+        
+        // Validate destination exists
+        if (!$dest) {
+            return [
+                'success' => false,
+                'message' => 'Invalid destination'
+            ];
+        }
+        
+        // Warn if destination is disabled (allow for one-time, block for schedules)
+        if (empty($dest['enabled'])) {
+            if ($schedule !== 'once') {
+                return [
+                    'success' => false,
+                    'message' => 'Cannot create schedule: destination is disabled in WHM'
+                ];
+            }
+            // For one-time jobs, allow but it will fail at execution time
+        }
+        
+        if (!empty($dest['name'])) {
             $destinationName = $dest['name'];
         }
         
         // Build job record with all required fields
         $job = [
-            'id' => $jobId,                                                      // Unique job identifier
+            'id' => $jobID,                                                      // Unique job identifier
             'type' => 'backup',                                                  // Job type (backup/restore)
             'accounts' => $accounts,                                             // Account list or ['*']
-            'destination' => $destinationId,                                     // Target destination ID
+            'destination' => $destinationID,                                     // Target destination ID
             'destination_name' => $destinationName,                              // Human-readable name
             'schedule' => $schedule,                                             // Schedule frequency
             'user' => $user,                                                     // Owner of this job
@@ -136,13 +156,14 @@ class BackBorkQueue {
             'retention' => isset($options['retention']) ? (int)$options['retention'] : 30,           // Days to keep
             'preferred_time' => isset($options['preferred_time']) ? (int)$options['preferred_time'] : 2,  // Run hour
             'day_of_week' => isset($options['day_of_week']) ? (int)$options['day_of_week'] : 0,       // Weekly day (0=Sun)
-            'all_accounts' => isset($options['all_accounts']) ? (bool)$options['all_accounts'] : false   // Dynamic mode
+            'all_accounts' => isset($options['all_accounts']) ? (bool)$options['all_accounts'] : false,  // Dynamic mode
+            'schedule_id' => isset($options['schedule_id']) ? $options['schedule_id'] : null         // Parent schedule ID
         ];
         
         // Route based on schedule type
         if ($schedule === 'once') {
             // === ONE-TIME JOB: Add to immediate queue ===
-            $queueFile = self::QUEUE_DIR . '/' . $jobId . '.json';
+            $queueFile = self::QUEUE_DIR . '/' . $jobID . '.json';
             file_put_contents($queueFile, json_encode($job, JSON_PRETTY_PRINT));
             chmod($queueFile, 0600);  // Secure permissions
             
@@ -159,7 +180,7 @@ class BackBorkQueue {
             return [
                 'success' => true,
                 'message' => 'Job added to queue',
-                'job_id' => $jobId
+                'job_id' => $jobID
             ];
         } else {
             // === RECURRING SCHEDULE: Add to schedules directory ===
@@ -168,7 +189,7 @@ class BackBorkQueue {
             $job['next_run'] = $this->calculateNextRun($schedule, $job['preferred_time'], $job['day_of_week']);
             
             // Save schedule file
-            $scheduleFile = self::SCHEDULES_DIR . '/' . $jobId . '.json';
+            $scheduleFile = self::SCHEDULES_DIR . '/' . $jobID . '.json';
             file_put_contents($scheduleFile, json_encode($job, JSON_PRETTY_PRINT));
             chmod($scheduleFile, 0600);  // Secure permissions
             
@@ -185,7 +206,7 @@ class BackBorkQueue {
             return [
                 'success' => true,
                 'message' => 'Schedule created',
-                'job_id' => $jobId
+                'job_id' => $jobID
             ];
         }
     }
@@ -265,7 +286,7 @@ class BackBorkQueue {
      * @return array Associative array with queued, running, schedules, restores arrays
      */
     public function getQueue($user, $isRoot, $viewAsUser = null) {
-        // Initialize result structure
+        // Initialise result structure
         $result = [
             'queued' => [],     // Pending one-time jobs
             'running' => [],    // Currently executing jobs
@@ -350,14 +371,14 @@ class BackBorkQueue {
      * Handles removal from both queue/ and schedules/ directories.
      * Non-root users can only remove their own items.
      * 
-     * @param string $jobId Unique job identifier
+     * @param string $jobID Unique job identifier
      * @param string $user Current authenticated user
      * @param bool $isRoot Whether user has root privileges
      * @return array Result with success status and message
      */
-    public function removeFromQueue($jobId, $user, $isRoot) {
+    public function removeFromQueue($jobID, $user, $isRoot) {
         // --- Check queue directory first ---
-        $queueFile = self::QUEUE_DIR . '/' . $jobId . '.json';
+        $queueFile = self::QUEUE_DIR . '/' . $jobID . '.json';
         if (file_exists($queueFile)) {
             $job = json_decode(file_get_contents($queueFile), true);
             
@@ -376,13 +397,13 @@ class BackBorkQueue {
                     : (isset($_SERVER['REMOTE_ADDR']) 
                         ? $_SERVER['REMOTE_ADDR'] 
                         : (BackBorkBootstrap::isCLI() ? 'cron' : 'local'));
-                BackBorkLog::logEvent($user, 'queue_remove', [$jobId], true, 'Job removed from queue', $requestor);
+                BackBorkLog::logEvent($user, 'queue_remove', [$jobID], true, 'Job removed from queue', $requestor);
             }
             return ['success' => true, 'message' => 'Job removed from queue'];
         }
         
         // --- Check schedules directory ---
-        $scheduleFile = self::SCHEDULES_DIR . '/' . $jobId . '.json';
+        $scheduleFile = self::SCHEDULES_DIR . '/' . $jobID . '.json';
         if (file_exists($scheduleFile)) {
             $schedule = json_decode(file_get_contents($scheduleFile), true);
             
@@ -401,7 +422,7 @@ class BackBorkQueue {
                     : (isset($_SERVER['REMOTE_ADDR']) 
                         ? $_SERVER['REMOTE_ADDR'] 
                         : (BackBorkBootstrap::isCLI() ? 'cron' : 'local'));
-                BackBorkLog::logEvent($user, 'schedule_delete', [$jobId], true, 'Schedule removed', $requestor);
+                BackBorkLog::logEvent($user, 'schedule_delete', [$jobID], true, 'Schedule removed', $requestor);
             }
             return ['success' => true, 'message' => 'Schedule removed'];
         }
@@ -442,10 +463,10 @@ class BackBorkQueue {
      * 
      * Searches queue, running, schedules, and completed directories.
      * 
-     * @param string $jobId Unique job identifier
+     * @param string $jobID Unique job identifier
      * @return array|null Job data or null if not found
      */
-    public function getJob($jobId) {
+    public function getJob($jobID) {
         // Search all possible locations
         $locations = [
             self::QUEUE_DIR,      // Pending jobs
@@ -455,7 +476,7 @@ class BackBorkQueue {
         ];
         
         foreach ($locations as $dir) {
-            $file = $dir . '/' . $jobId . '.json';
+            $file = $dir . '/' . $jobID . '.json';
             if (file_exists($file)) {
                 return json_decode(file_get_contents($file), true);
             }
@@ -471,17 +492,17 @@ class BackBorkQueue {
     /**
      * Update a job's data by merging new values
      * 
-     * @param string $jobId Unique job identifier
+     * @param string $jobID Unique job identifier
      * @param array $data Key-value pairs to merge into job data
      * @param string|null $location Directory to search (auto-detects if null)
      * @return bool Success status
      */
-    public function updateJob($jobId, $data, $location = null) {
+    public function updateJob($jobID, $data, $location = null) {
         // Auto-detect location if not specified
         if (!$location) {
             $locations = [self::QUEUE_DIR, self::RUNNING_DIR, self::SCHEDULES_DIR];
             foreach ($locations as $dir) {
-                if (file_exists($dir . '/' . $jobId . '.json')) {
+                if (file_exists($dir . '/' . $jobID . '.json')) {
                     $location = $dir;
                     break;
                 }
@@ -493,7 +514,7 @@ class BackBorkQueue {
             return false;
         }
         
-        $file = $location . '/' . $jobId . '.json';
+        $file = $location . '/' . $jobID . '.json';
         if (!file_exists($file)) {
             return false;
         }
@@ -512,14 +533,14 @@ class BackBorkQueue {
      * - queue → running (when job starts)
      * - running → completed (when job finishes)
      * 
-     * @param string $jobId Unique job identifier
+     * @param string $jobID Unique job identifier
      * @param string $from Source directory path
      * @param string $to Destination directory path
      * @param array $additionalData Extra data to add during move
      * @return bool Success status
      */
-    public function moveJob($jobId, $from, $to, $additionalData = []) {
-        $sourceFile = $from . '/' . $jobId . '.json';
+    public function moveJob($jobID, $from, $to, $additionalData = []) {
+        $sourceFile = $from . '/' . $jobID . '.json';
         if (!file_exists($sourceFile)) {
             return false;
         }
@@ -529,7 +550,7 @@ class BackBorkQueue {
         $job = array_merge($job, $additionalData);
         
         // Write to destination
-        $destFile = $to . '/' . $jobId . '.json';
+        $destFile = $to . '/' . $jobID . '.json';
         if (file_put_contents($destFile, json_encode($job, JSON_PRETTY_PRINT)) === false) {
             return false;
         }
@@ -554,7 +575,7 @@ class BackBorkQueue {
      * 
      * @return string Unique job ID
      */
-    public function generateJobId() {
+    public function generateJobID() {
         return 'bb_' . date('Ymd_His') . '_' . substr(md5(uniqid(mt_rand(), true)), 0, 8);
     }
     
@@ -643,18 +664,18 @@ class BackBorkQueue {
      * Request cancellation of a running job
      * Creates a cancel marker file that the worker checks after each account
      * 
-     * @param string $jobId Job ID to cancel
+     * @param string $jobID Job ID to cancel
      * @param string $user User requesting cancellation (for permission check)
      * @param bool $isRoot Whether user has root privileges
      * @return array Result with success status and message
      */
-    public function requestCancel($jobId, $user, $isRoot) {
+    public function requestCancel($jobID, $user, $isRoot) {
         // Find the job in running directory
-        $runningFile = self::RUNNING_DIR . '/' . $jobId . '.json';
+        $runningFile = self::RUNNING_DIR . '/' . $jobID . '.json';
         
         if (!file_exists($runningFile)) {
             // Check if it's in queue (not yet started)
-            $queueFile = self::QUEUE_DIR . '/' . $jobId . '.json';
+            $queueFile = self::QUEUE_DIR . '/' . $jobID . '.json';
             if (file_exists($queueFile)) {
                 // Job hasn't started yet - just delete it from queue
                 $job = json_decode(file_get_contents($queueFile), true);
@@ -684,7 +705,7 @@ class BackBorkQueue {
         }
         
         // Create cancel marker file
-        $cancelFile = self::CANCEL_DIR . '/' . $jobId . '.cancel';
+        $cancelFile = self::CANCEL_DIR . '/' . $jobID . '.cancel';
         
         // Ensure cancel directory exists
         if (!is_dir(self::CANCEL_DIR)) {
@@ -693,7 +714,7 @@ class BackBorkQueue {
         
         // Write cancel request with timestamp and user
         $cancelData = [
-            'job_id' => $jobId,
+            'job_id' => $jobID,
             'requested_by' => $user,
             'requested_at' => date('Y-m-d H:i:s')
         ];
@@ -708,11 +729,11 @@ class BackBorkQueue {
      * Check if a job has a pending cancellation request
      * Called by BackupManager after each account backup
      * 
-     * @param string $jobId Job ID to check
+     * @param string $jobID Job ID to check
      * @return bool True if cancellation was requested
      */
-    public static function isCancelRequested($jobId) {
-        $cancelFile = self::CANCEL_DIR . '/' . $jobId . '.cancel';
+    public static function isCancelRequested($jobID) {
+        $cancelFile = self::CANCEL_DIR . '/' . $jobID . '.cancel';
         return file_exists($cancelFile);
     }
     
@@ -720,10 +741,10 @@ class BackBorkQueue {
      * Clear cancellation marker after job has been cancelled
      * Called by BackupManager when it honours a cancel request
      * 
-     * @param string $jobId Job ID to clear
+     * @param string $jobID Job ID to clear
      */
-    public static function clearCancelRequest($jobId) {
-        $cancelFile = self::CANCEL_DIR . '/' . $jobId . '.cancel';
+    public static function clearCancelRequest($jobID) {
+        $cancelFile = self::CANCEL_DIR . '/' . $jobID . '.cancel';
         if (file_exists($cancelFile)) {
             unlink($cancelFile);
         }

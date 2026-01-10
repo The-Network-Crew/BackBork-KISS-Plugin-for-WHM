@@ -1,6 +1,6 @@
 {
     "_comment": "BackBork KISS - Deployment Configuration Template",
-    "_docs": "https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM",
+    "_docs": "https://github.com/The-Network-Crew/BackBork-KISS-for-WHM",
     
     "notify_email": "",
     "slack_webhook": "",

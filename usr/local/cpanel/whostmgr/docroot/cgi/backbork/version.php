@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Defines the current plugin version number (semantic versioning).
@@ -27,4 +27,10 @@
  */
 
 // Plugin Version - follows semantic versioning (MAJOR.MINOR.PATCH)
-define('BACKBORK_VERSION', '1.4.2');
+define('BACKBORK_VERSION', '1.4.3');
+
+// Last Commit - populated by install.sh/updater.sh from git
+// BACKBORK_COMMIT: short hash (e.g., "abc1234") or "dev" if not from git
+// BACKBORK_COMMIT_DATE: timestamp (e.g., "2025-12-22 15:51:05") or empty
+define('BACKBORK_COMMIT', 'unknown');
+define('BACKBORK_COMMIT_DATE', '');

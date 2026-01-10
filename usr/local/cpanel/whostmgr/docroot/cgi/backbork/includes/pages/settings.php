@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Settings panel for user preferences and global configuration.
@@ -42,7 +42,7 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     ================================================================ -->
     <div class="backbork-card">
         <h3>Administrator Settings</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
             Where relevant, these settings apply globally. For instance, Resellers cannot Unlock Schedules nor view WHM error_log file.
         </p>
         
@@ -106,10 +106,24 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
     ================================================================ -->
     <div class="backbork-card">
         <h3>Destination Visibility</h3>
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
             Mark destinations as root-only to hide them from resellers. This does not affect backups already in progress.
         </p>
         <div id="destination-visibility-list">
+            <div class="loading-spinner"></div> Loading destinations...
+        </div>
+    </div>
+    
+    <!-- ================================================================
+         ROOT-ONLY: Disabled Destinations
+         Enable destinations that are disabled in WHM
+    ================================================================ -->
+    <div class="backbork-card">
+        <h3>Disabled Destinations</h3>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+            Destinations disabled in WHM cannot be used for backups, restores, or pruning. Enable them here or via WHM Backup Configuration.
+        </p>
+        <div id="disabled-destinations-list">
             <div class="loading-spinner"></div> Loading destinations...
         </div>
     </div>

@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Central API endpoint handling all AJAX requests from the frontend.
@@ -55,7 +55,7 @@ if ($isCLI) {
     $cliAction = $args['action'] ?? null;
     $cliData = isset($args['data']) ? json_decode($args['data'], true) : null;
     
-    // Initialize for CLI (bypasses WHM auth - you're already root)
+    // Initialise for CLI (bypasses WHM auth - you're already root)
     BackBorkBootstrap::initCLI();
 } else {
     // Web request - normal WHM authentication
@@ -272,7 +272,7 @@ switch ($action) {
         
         // Fetch remote version from GitHub (with timeout)
         $ctx = stream_context_create(['http' => ['timeout' => 5]]);
-        $remoteUrl = 'https://raw.githubusercontent.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/refs/heads/main/version';
+        $remoteUrl = 'https://raw.githubusercontent.com/The-Network-Crew/BackBork-KISS-for-WHM/refs/heads/main/version';
         $remoteContent = @file_get_contents($remoteUrl, false, $ctx);
         
         if ($remoteContent !== false) {
@@ -291,6 +291,59 @@ switch ($action) {
         ]);
         break;
     
+    /**
+     * Perform self-update
+     * Downloads latest version from GitHub and runs installer
+     * Root only - spawns background update script that survives the update
+     */
+    case 'perform_update':
+        // Security: Only root can trigger updates
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied - root only']);
+            break;
+        }
+        
+        $currentVersion = BACKBORK_VERSION;
+        $updaterScript = '/usr/local/cpanel/3rdparty/backbork/updater.sh';
+        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/update.log';
+        
+        // Verify updater script exists
+        if (!file_exists($updaterScript)) {
+            BackBorkLog::logEvent($currentUser, 'update_failed', ['version' => $currentVersion], false, 'Updater script not found', $requestor);
+            echo json_encode(['success' => false, 'message' => 'Updater script not found. Please reinstall the plugin.']);
+            break;
+        }
+        
+        // Get notification settings from user config
+        $config = new BackBorkConfig();
+        $userConfig = $config->getUserConfig('root');
+        $notifyEmail = $userConfig['notify_email'] ?? '';
+        $slackWebhook = $userConfig['slack_webhook'] ?? '';
+        
+        // Log the update initiation
+        BackBorkLog::logEvent($currentUser, 'update_started', ['version' => $currentVersion, 'initiated_by' => $currentUser], true, 'Self-update initiated', $requestor);
+        
+        // Initialise update log
+        $timestamp = date('Y-m-d H:i:s');
+        file_put_contents($logFile, "[{$timestamp}] Update initiated by {$currentUser} from {$requestor}\n", FILE_APPEND);
+        
+        // Build command with escaped arguments
+        $cmd = escapeshellcmd($updaterScript) . ' ' 
+             . escapeshellarg($currentVersion) . ' '
+             . escapeshellarg($notifyEmail) . ' '
+             . escapeshellarg($slackWebhook)
+             . ' >> ' . escapeshellarg($logFile) . ' 2>&1 &';
+        
+        // Execute in background (nohup ensures it survives parent exit)
+        exec('nohup ' . $cmd);
+        
+        echo json_encode([
+            'success' => true, 
+            'message' => 'Update started. You will be notified when complete.',
+            'log_file' => $logFile
+        ]);
+        break;
+    
     // ========================================================================
     // BACKUP OPERATIONS
     // ========================================================================
@@ -302,7 +355,7 @@ switch ($action) {
     case 'create_backup':
         $data = backbork_get_request_data();
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
-        $destinationId = isset($data['destination']) ? $data['destination'] : '';
+        $destinationID = isset($data['destination']) ? $data['destination'] : '';
         
         // Security: Validate user can access requested accounts
         $accessibleAccounts = $acl->getAccessibleAccounts();
@@ -314,21 +367,21 @@ switch ($action) {
         }
         
         // Generate backup_id early and create initial log file
-        $backupId = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
+        $backupID = 'backup_' . time() . '_' . substr(md5(uniqid()), 0, 8);
         $logDir = '/usr/local/cpanel/3rdparty/backbork/logs';
         if (!is_dir($logDir)) {
             mkdir($logDir, 0755, true);
         }
-        $logFile = $logDir . '/' . $backupId . '.log';
+        $logFile = $logDir . '/' . $backupID . '.log';
         file_put_contents($logFile, "[" . date('H:i:s') . "] Backup initiated, preparing...\n");
         
         // Create a job file that the CLI runner will pick up
-        $jobFile = $logDir . '/' . $backupId . '.job';
+        $jobFile = $logDir . '/' . $backupID . '.job';
         $jobData = [
             'type' => 'backup',
-            'backup_id' => $backupId,
+            'backup_id' => $backupID,
             'accounts' => array_values($validAccounts),
-            'destination' => $destinationId,
+            'destination' => $destinationID,
             'user' => $currentUser,
             'requestor' => $requestor,
             'created_at' => date('Y-m-d H:i:s')
@@ -342,7 +395,7 @@ switch ($action) {
         exec($cmd);
         
         // Return immediately with backup_id so client can start polling
-        echo json_encode(['success' => true, 'backup_id' => $backupId, 'message' => 'Backup started']);
+        echo json_encode(['success' => true, 'backup_id' => $backupID, 'message' => 'Backup started']);
         break;
     
     /**
@@ -352,7 +405,7 @@ switch ($action) {
     case 'queue_backup':
         $data = backbork_get_request_data();
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
-        $destinationId = isset($data['destination']) ? $data['destination'] : '';
+        $destinationID = isset($data['destination']) ? $data['destination'] : '';
         $schedule = isset($data['schedule']) ? $data['schedule'] : 'daily';
         
         // Security: Validate user can access requested accounts
@@ -370,7 +423,7 @@ switch ($action) {
         if (isset($data['retention'])) $options['retention'] = (int)$data['retention'];
         if (isset($data['preferred_time'])) $options['preferred_time'] = (int)$data['preferred_time'];
         
-        $result = $queue->addToQueue($validAccounts, $destinationId, $schedule, $currentUser, $options);
+        $result = $queue->addToQueue($validAccounts, $destinationID, $schedule, $currentUser, $options);
         echo json_encode($result);
         break;
     
@@ -385,7 +438,7 @@ switch ($action) {
     case 'create_schedule':
         $data = backbork_get_request_data();
         $accounts = isset($data['accounts']) ? $data['accounts'] : [];
-        $destinationId = isset($data['destination']) ? $data['destination'] : '';
+        $destinationID = isset($data['destination']) ? $data['destination'] : '';
         $schedule = isset($data['schedule']) ? $data['schedule'] : 'daily';
         $allAccounts = isset($data['all_accounts']) ? (bool)$data['all_accounts'] : false;
         
@@ -418,7 +471,7 @@ switch ($action) {
         if (isset($data['day_of_week'])) $options['day_of_week'] = (int)$data['day_of_week'];
         if ($allAccounts) $options['all_accounts'] = true;
 
-        $result = $queue->addToQueue($validAccounts, $destinationId, $schedule, $currentUser, $options);
+        $result = $queue->addToQueue($validAccounts, $destinationID, $schedule, $currentUser, $options);
         echo json_encode($result);
         break;
     
@@ -428,7 +481,7 @@ switch ($action) {
      */
     case 'delete_schedule':
         $data = backbork_get_request_data();
-        $jobId = isset($data['job_id']) ? $data['job_id'] : '';
+        $jobID = isset($data['job_id']) ? $data['job_id'] : '';
         
         // Security: Check if schedules are locked for resellers
         if (!$isRoot && BackBorkConfig::areSchedulesLocked()) {
@@ -438,7 +491,7 @@ switch ($action) {
         
         // Delete the schedule
         $queue = new BackBorkQueue();
-        echo json_encode($queue->removeFromQueue($jobId, $currentUser, $isRoot));
+        echo json_encode($queue->removeFromQueue($jobID, $currentUser, $isRoot));
         break;
     
     // ========================================================================
@@ -462,10 +515,10 @@ switch ($action) {
      */
     case 'remove_from_queue':
         $data = backbork_get_request_data();
-        $jobId = isset($data['job_id']) ? $data['job_id'] : '';
+        $jobID = isset($data['job_id']) ? $data['job_id'] : '';
         
         $queue = new BackBorkQueue();
-        echo json_encode($queue->removeFromQueue($jobId, $currentUser, $isRoot));
+        echo json_encode($queue->removeFromQueue($jobID, $currentUser, $isRoot));
         break;
     
     /**
@@ -475,19 +528,19 @@ switch ($action) {
      */
     case 'cancel_job':
         $data = backbork_get_request_data();
-        $jobId = isset($data['job_id']) ? $data['job_id'] : '';
+        $jobID = isset($data['job_id']) ? $data['job_id'] : '';
         
-        if (empty($jobId)) {
+        if (empty($jobID)) {
             echo json_encode(['success' => false, 'message' => 'Job ID required']);
             break;
         }
         
         $queue = new BackBorkQueue();
-        $result = $queue->requestCancel($jobId, $currentUser, $isRoot);
+        $result = $queue->requestCancel($jobID, $currentUser, $isRoot);
         
         // Log the cancellation request
         if ($result['success'] && class_exists('BackBorkLog')) {
-            BackBorkLog::logEvent($currentUser, 'queue_remove', [$jobId], true, 
+            BackBorkLog::logEvent($currentUser, 'queue_remove', [$jobID], true, 
                 'Cancellation requested for running job', $requestor);
         }
         
@@ -575,11 +628,11 @@ switch ($action) {
      * Get list of remote backups from a destination
      */
     case 'get_remote_backups':
-        $destinationId = isset($_GET['destination']) ? $_GET['destination'] : '';
+        $destinationID = isset($_GET['destination']) ? $_GET['destination'] : '';
         $account = isset($_GET['account']) ? $_GET['account'] : '';
         
         $backupManager = new BackBorkBackupManager();
-        echo json_encode($backupManager->listRemoteBackups($destinationId, $currentUser, $account));
+        echo json_encode($backupManager->listRemoteBackups($destinationID, $currentUser, $account));
         break;
     
     /**
@@ -591,7 +644,7 @@ switch ($action) {
         $backupFile = isset($data['backup_file']) ? $data['backup_file'] : '';
         $account = isset($data['account']) ? $data['account'] : '';
         $restoreOptions = isset($data['options']) ? $data['options'] : [];
-        $destinationId = isset($data['destination']) ? $data['destination'] : '';
+        $destinationID = isset($data['destination']) ? $data['destination'] : '';
         
         // Security: Validate user can access this account
         if (!$acl->canAccessAccount($account)) {
@@ -600,22 +653,22 @@ switch ($action) {
         }
         
         // Generate restore_id early and create initial log file
-        $restoreId = 'restore_' . time() . '_' . substr(md5(uniqid()), 0, 8);
+        $restoreID = 'restore_' . time() . '_' . substr(md5(uniqid()), 0, 8);
         $logDir = '/usr/local/cpanel/3rdparty/backbork/logs';
         if (!is_dir($logDir)) {
             mkdir($logDir, 0755, true);
         }
-        $logFile = $logDir . '/' . $restoreId . '.log';
+        $logFile = $logDir . '/' . $restoreID . '.log';
         file_put_contents($logFile, "[" . date('H:i:s') . "] Restore initiated, preparing...\n");
         
         // Create a job file that the CLI runner will pick up
-        $jobFile = $logDir . '/' . $restoreId . '.job';
+        $jobFile = $logDir . '/' . $restoreID . '.job';
         $jobData = [
             'type' => 'restore',
-            'restore_id' => $restoreId,
+            'restore_id' => $restoreID,
             'backup_file' => $backupFile,
             'account' => $account,
-            'destination' => $destinationId,
+            'destination' => $destinationID,
             'options' => $restoreOptions,
             'user' => $currentUser,
             'requestor' => $requestor,
@@ -630,7 +683,7 @@ switch ($action) {
         exec($cmd);
         
         // Return immediately with restore_id so client can start polling
-        echo json_encode(['success' => true, 'restore_id' => $restoreId, 'message' => 'Restore started']);
+        echo json_encode(['success' => true, 'restore_id' => $restoreID, 'message' => 'Restore started']);
         break;
     
     /**
@@ -639,13 +692,13 @@ switch ($action) {
      */
     case 'delete_backup':
         $data = backbork_get_request_data();
-        $destinationId = isset($data['destination']) ? $data['destination'] : '';
+        $destinationID = isset($data['destination']) ? $data['destination'] : '';
         // Accept 'path' (full), 'filename', or 'backup_file'
         $backupPath = isset($data['path']) ? $data['path'] : '';
         $backupFile = isset($data['filename']) ? $data['filename'] : 
                      (isset($data['backup_file']) ? $data['backup_file'] : '');
         
-        if (empty($destinationId) || (empty($backupFile) && empty($backupPath))) {
+        if (empty($destinationID) || (empty($backupFile) && empty($backupPath))) {
             echo json_encode(['success' => false, 'message' => 'Destination and backup file are required']);
             break;
         }
@@ -666,7 +719,7 @@ switch ($action) {
         
         // Get destination info
         $parser = new BackBorkDestinationsParser();
-        $destination = $parser->getDestinationById($destinationId);
+        $destination = $parser->getDestinationByID($destinationID);
         
         if (!$destination) {
             echo json_encode(['success' => false, 'message' => 'Destination not found']);
@@ -724,19 +777,19 @@ switch ($action) {
      */
     case 'get_backup_accounts':
         $data = backbork_get_request_data();
-        $destinationId = isset($data['destination']) ? $data['destination'] : 
+        $destinationID = isset($data['destination']) ? $data['destination'] : 
                         (isset($_GET['destination']) ? $_GET['destination'] : '');
         
-        BackBorkConfig::debugLog('get_backup_accounts: destination=' . $destinationId);
+        BackBorkConfig::debugLog('get_backup_accounts: destination=' . $destinationID);
         
-        if (empty($destinationId)) {
+        if (empty($destinationID)) {
             echo json_encode(['success' => false, 'message' => 'Destination is required']);
             break;
         }
         
         // Get destination info
         $parser = new BackBorkDestinationsParser();
-        $destination = $parser->getDestinationById($destinationId);
+        $destination = $parser->getDestinationByID($destinationID);
         
         if (!$destination) {
             BackBorkConfig::debugLog('get_backup_accounts: Destination not found');
@@ -827,12 +880,12 @@ switch ($action) {
      */
     case 'list_backups':
         $data = backbork_get_request_data();
-        $destinationId = isset($data['destination']) ? $data['destination'] : 
+        $destinationID = isset($data['destination']) ? $data['destination'] : 
                         (isset($_GET['destination']) ? $_GET['destination'] : '');
         $account = isset($data['account']) ? $data['account'] : 
                   (isset($_GET['account']) ? $_GET['account'] : '');
         
-        if (empty($destinationId) || empty($account)) {
+        if (empty($destinationID) || empty($account)) {
             echo json_encode(['success' => false, 'message' => 'Destination and account are required']);
             break;
         }
@@ -845,7 +898,7 @@ switch ($action) {
         
         // Get destination info
         $parser = new BackBorkDestinationsParser();
-        $destination = $parser->getDestinationById($destinationId);
+        $destination = $parser->getDestinationByID($destinationID);
         
         if (!$destination) {
             echo json_encode(['success' => false, 'message' => 'Destination not found']);
@@ -946,22 +999,60 @@ switch ($action) {
             break;
         }
         $data = backbork_get_request_data();
-        $destId = isset($data['destination_id']) ? $data['destination_id'] : '';
+        $destinationID = isset($data['destination_id']) ? $data['destination_id'] : '';
         $rootOnly = isset($data['root_only']) ? (bool)$data['root_only'] : false;
         
-        if (empty($destId)) {
+        if (empty($destinationID)) {
             echo json_encode(['success' => false, 'message' => 'Destination ID required']);
             break;
         }
         
-        $result = BackBorkConfig::setDestinationRootOnly($destId, $rootOnly);
+        $result = BackBorkConfig::setDestinationRootOnly($destinationID, $rootOnly);
         if ($result) {
             BackBorkLog::logEvent($currentUser, 'destination_visibility_changed', [
-                'destination' => $destId,
+                'destination' => $destinationID,
                 'root_only' => $rootOnly
-            ], true, "Destination '$destId' visibility set to " . ($rootOnly ? 'root-only' : 'all users'), $requestor);
+            ], true, "Destination '$destinationID' visibility set to " . ($rootOnly ? 'root-only' : 'all users'), $requestor);
         }
         echo json_encode(['success' => $result]);
+        break;
+    
+    /**
+     * Enable a disabled destination (root only)
+     * Calls WHM API to set disabled=0 for the destination
+     */
+    case 'enable_destination':
+        if (!$isRoot) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']);
+            break;
+        }
+        $data = backbork_get_request_data();
+        $destinationID = isset($data['destination_id']) ? $data['destination_id'] : '';
+        
+        if (empty($destinationID)) {
+            echo json_encode(['success' => false, 'message' => 'Destination ID required']);
+            break;
+        }
+        
+        // Use WHM API to enable the destination
+        $whmCmd = '/usr/local/cpanel/bin/whmapi1 backup_destination_set id=' . escapeshellarg($destinationID) . ' disabled=0 2>&1';
+        $output = shell_exec($whmCmd);
+        
+        // Check for success in output
+        $success = (strpos($output, 'result: 1') !== false || strpos($output, '"result":1') !== false);
+        
+        if ($success) {
+            BackBorkLog::logEvent($currentUser, 'destination_enabled', [
+                'destination' => $destinationID
+            ], true, "Destination '$destinationID' enabled via WHM API", $requestor);
+            echo json_encode(['success' => true, 'message' => 'Destination enabled']);
+        } else {
+            BackBorkLog::logEvent($currentUser, 'destination_enable_failed', [
+                'destination' => $destinationID,
+                'output' => $output
+            ], false, "Failed to enable destination '$destinationID'", $requestor);
+            echo json_encode(['success' => false, 'message' => 'Failed to enable destination', 'output' => $output]);
+        }
         break;
     
     /**
@@ -974,21 +1065,21 @@ switch ($action) {
             break;
         }
         $data = backbork_get_request_data();
-        $destId = isset($data['destination']) ? $data['destination'] : '';
+        $destinationID = isset($data['destination_id']) ? $data['destination_id'] : '';
         
-        if (empty($destId)) {
+        if (empty($destinationID)) {
             echo json_encode(['success' => false, 'message' => 'Destination ID required']);
             break;
         }
         
         // Don't allow validating local destinations
-        if (strtolower($destId) === 'local') {
+        if (strtolower($destinationID) === 'local') {
             echo json_encode(['success' => false, 'message' => 'Local destinations do not require validation']);
             break;
         }
         
         // Run backup_cmd with correct syntax: id=<transport_id> disableonfail=0
-        $cmd = '/usr/local/cpanel/bin/backup_cmd id=' . escapeshellarg($destId) . ' disableonfail=0 2>&1';
+        $cmd = '/usr/local/cpanel/bin/backup_cmd id=' . escapeshellarg($destinationID) . ' disableonfail=0 2>&1';
         $output = [];
         $returnCode = 0;
         
@@ -1082,7 +1173,7 @@ switch ($action) {
         $filter = isset($_GET['filter']) ? $_GET['filter'] : 'all';
         $accountFilter = isset($_GET['account']) ? $_GET['account'] : '';
         
-        // Use centralized logger
+        // Use centralised logger
         if (class_exists('BackBorkLog')) {
             echo json_encode(BackBorkLog::getLogs($currentUser, $isRoot, $page, $limit, $filter, $accountFilter));
         } else {
@@ -1097,16 +1188,16 @@ switch ($action) {
      * Used for tailing restore output during long operations
      */
     case 'get_restore_log':
-        $restoreId = isset($_GET['restore_id']) ? $_GET['restore_id'] : '';
+        $restoreID = isset($_GET['restore_id']) ? $_GET['restore_id'] : '';
         $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
         
         // Validate restore_id format (security)
-        if (!preg_match('/^restore_[0-9]+_[a-f0-9]+$/', $restoreId)) {
+        if (!preg_match('/^restore_[0-9]+_[a-f0-9]+$/', $restoreID)) {
             echo json_encode(['success' => false, 'message' => 'Invalid restore ID']);
             break;
         }
         
-        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/' . $restoreId . '.log';
+        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/' . $restoreID . '.log';
         
         if (!file_exists($logFile)) {
             echo json_encode(['success' => false, 'message' => 'Log file not found', 'content' => '', 'offset' => 0, 'complete' => false]);
@@ -1147,16 +1238,16 @@ switch ($action) {
      * Used for tailing backup output during long operations
      */
     case 'get_backup_log':
-        $backupId = isset($_GET['backup_id']) ? $_GET['backup_id'] : '';
+        $backupID = isset($_GET['backup_id']) ? $_GET['backup_id'] : '';
         $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
         
         // Validate backup_id format (security)
-        if (!preg_match('/^backup_[0-9]+_[a-f0-9]+$/', $backupId)) {
+        if (!preg_match('/^backup_[0-9]+_[a-f0-9]+$/', $backupID)) {
             echo json_encode(['success' => false, 'message' => 'Invalid backup ID']);
             break;
         }
         
-        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/' . $backupId . '.log';
+        $logFile = '/usr/local/cpanel/3rdparty/backbork/logs/' . $backupID . '.log';
         
         if (!file_exists($logFile)) {
             echo json_encode(['success' => false, 'message' => 'Log file not found', 'content' => '', 'offset' => 0, 'complete' => false]);

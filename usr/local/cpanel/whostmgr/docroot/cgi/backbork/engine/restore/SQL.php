@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   SQL restore handler for database restoration from hot backup archives.
@@ -186,7 +186,7 @@ class BackBorkSQLRestore {
         
         return [
             'success' => false,
-            'message' => 'Unknown database backup format - no recognized files found in ' . basename($backupDir)
+            'message' => 'Unknown database backup format - no recognised files found in ' . basename($backupDir)
         ];
     }
     

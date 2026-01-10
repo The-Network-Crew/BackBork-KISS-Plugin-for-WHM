@@ -385,7 +385,7 @@ This example configures:
 
 ## 📊 Ansible Roles Structure
 
-For larger deployments, consider organizing as a role:
+For larger deployments, consider organising as a role:
 
 ```
 roles/
@@ -505,7 +505,37 @@ For complete API documentation, see [API.md](API.md).
 | `delete_schedule` | Delete schedule |
 | `create_backup` | Trigger immediate backup |
 | `validate_destination` | Test destination connectivity |
+| `enable_destination` | Re-enable a disabled destination (root only) |
 | `get_destinations` | List available destinations |
+
+### Destination Status Checks
+
+> [!NOTE]
+> **New in v1.4.3:** BackBork now validates destination enabled status before running scheduled backups.
+
+When a WHM destination is disabled (usually due to connection failures), scheduled backups targeting that destination are skipped. Use `enable_destination` to re-enable:
+
+```bash
+# Check if any destinations are disabled
+php {{ backbork_api_path }} --action=get_destinations | grep -i '"enabled": false'
+
+# Re-enable a specific destination
+php {{ backbork_api_path }} --action=enable_destination \
+    --data='{"destination": "SFTP_BackupServer"}'
+```
+
+**Ansible Task Example:**
+
+```yaml
+- name: Re-enable disabled backup destination
+  command: >
+    php {{ backbork_api_path }}
+    --action=enable_destination
+    --data='{"destination": "{{ sftp_destination_id }}"}'
+  register: enable_result
+  changed_when: "'enabled' in enable_result.stdout"
+  failed_when: "'error' in enable_result.stdout"
+```
 
 ---
 
@@ -544,5 +574,3 @@ tail -f /usr/local/cpanel/logs/error_log | grep -i backbork
 ```
 
 ---
-
-*Documentation for BackBork KISS v1.2.9+*

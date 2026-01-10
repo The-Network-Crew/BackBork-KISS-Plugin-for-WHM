@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Background job runner executed as a separate process for backup/restore.
@@ -57,13 +57,13 @@ $baseDir = dirname(__DIR__);
 require_once($baseDir . '/version.php');
 require_once($baseDir . '/app/Bootstrap.php');
 
-// Initialize for CLI mode
+// Initialise for CLI mode
 BackBorkBootstrap::initCLI();
 
 // Get the log file path
 $logDir = '/usr/local/cpanel/3rdparty/backbork/logs';
-$operationId = isset($jobData['backup_id']) ? $jobData['backup_id'] : (isset($jobData['restore_id']) ? $jobData['restore_id'] : 'unknown');
-$logFile = $logDir . '/' . $operationId . '.log';
+$operationID = isset($jobData['backup_id']) ? $jobData['backup_id'] : (isset($jobData['restore_id']) ? $jobData['restore_id'] : 'unknown');
+$logFile = $logDir . '/' . $operationID . '.log';
 
 // Helper function to append to log
 function runner_log($message) {
@@ -81,8 +81,8 @@ try {
             runner_log("Background runner started for backup");
             
             $accounts = isset($jobData['accounts']) ? $jobData['accounts'] : [];
-            $destinationId = isset($jobData['destination']) ? $jobData['destination'] : '';
-            $backupId = $jobData['backup_id'];
+            $destinationID = isset($jobData['destination']) ? $jobData['destination'] : '';
+            $backupID = $jobData['backup_id'];
             $user = isset($jobData['user']) ? $jobData['user'] : 'root';
             $jobRequestor = isset($jobData['requestor']) ? $jobData['requestor'] : 'cron';
             
@@ -93,7 +93,7 @@ try {
             
             $backupManager = new BackBorkBackupManager();
             $backupManager->setRequestor($jobRequestor);
-            $backupManager->createBackupWithId($accounts, $destinationId, $user, $backupId);
+            $backupManager->createBackupWithID($accounts, $destinationID, $user, $backupID);
             
             runner_log("Backup job completed");
             break;
@@ -102,8 +102,8 @@ try {
             runner_log("Background runner started for restore");
             
             $backupFile = isset($jobData['backup_file']) ? $jobData['backup_file'] : '';
-            $destinationId = isset($jobData['destination']) ? $jobData['destination'] : '';
-            $restoreId = $jobData['restore_id'];
+            $destinationID = isset($jobData['destination']) ? $jobData['destination'] : '';
+            $restoreID = $jobData['restore_id'];
             $user = isset($jobData['user']) ? $jobData['user'] : 'root';
             $options = isset($jobData['options']) ? $jobData['options'] : [];
             $jobRequestor = isset($jobData['requestor']) ? $jobData['requestor'] : 'cron';
@@ -115,7 +115,7 @@ try {
             
             $restoreManager = new BackBorkRestoreManager();
             $restoreManager->setRequestor($jobRequestor);
-            $restoreManager->restoreAccountWithId($backupFile, $destinationId, $options, $user, $restoreId);
+            $restoreManager->restoreAccountWithID($backupFile, $destinationID, $options, $user, $restoreID);
             
             runner_log("Restore job completed");
             break;

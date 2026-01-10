@@ -4,7 +4,7 @@
 # Disaster Recovery Plugin for WHM
 #
 # Copyright (c) The Network Crew Pty Ltd & Velocity Host Pty Ltd
-# https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM
+# https://github.com/The-Network-Crew/BackBork-KISS-for-WHM
 #
 
 set -e
@@ -154,5 +154,5 @@ fi
 
 echo ""
 echo "Thank you for using BackBork KISS!"
-echo "https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM"
+echo "https://github.com/The-Network-Crew/BackBork-KISS-for-WHM"
 echo ""

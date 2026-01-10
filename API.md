@@ -265,6 +265,37 @@ Tests a destination connection.
 > [!NOTE]
 > This wraps `/usr/local/cpanel/bin/backup_cmd` internally.
 
+#### `POST ?action=enable_destination` — Root-only
+
+Re-enables a disabled WHM backup destination. This is useful when a destination has been automatically disabled due to validation failures.
+
+**Request:**
+```json
+{
+  "destination": "SFTP_BackupServer"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Destination enabled successfully"
+}
+```
+
+> [!NOTE]
+> This calls WHM's `backup_destination_set` API with `disabled=0`. Only root users can enable destinations.
+
+> [!WARNING]
+> **Destination Validation:** When WHM disables a destination (usually due to connection failures), you should resolve the underlying issue before re-enabling. Re-enabling a misconfigured destination will just cause it to be disabled again on the next validation failure.
+
+**Common Reasons for Disabled Destinations:**
+- SFTP authentication failures (changed password/key)
+- Network connectivity issues
+- Remote storage full or unavailable
+- Permission denied on remote path
+
 ---
 
 ### Backup Operations
@@ -1081,6 +1112,52 @@ Or filter by account:
 
 ---
 
+### Updates
+
+#### `GET ?action=check_update`
+
+Checks if a newer version is available on GitHub.
+
+**Response:**
+```json
+{
+  "success": true,
+  "local_version": "1.4.2",
+  "remote_version": "1.4.3",
+  "update_available": true
+}
+```
+
+---
+
+#### `POST ?action=perform_update`
+
+Triggers a self-update to the latest version. **Root only.**
+
+The update runs in the background and survives the plugin being overwritten. Notifications are sent upon completion.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Update started. You will be notified when complete.",
+  "log_file": "/usr/local/cpanel/3rdparty/backbork/logs/update.log"
+}
+```
+
+**Notifications Sent:**
+
+| Recipient | Method |
+|-----------|--------|
+| System root email | Email via /etc/aliases forward |
+| Plugin contact email | Email (if configured) |
+| Plugin Slack webhook | Slack (if configured) |
+
+> [!WARNING]
+> The web interface may become temporarily unavailable during the update. Refresh after receiving the completion notification.
+
+---
+
 ## 🚨 Error Codes
 
 | Code | Description |
@@ -1182,12 +1259,8 @@ if ($response['success']) {
 | 📖 **README** | [README.md](README.md) |
 | 🔧 **Technical Docs** | [TECHNICAL.md](TECHNICAL.md) |
 | ⏰ **Cron Configuration** | [CRON.md](CRON.md) |
-| 🐛 **Report Issues** | [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/issues) |
+| 🐛 **Report Issues** | [GitHub Issues](https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/issues) |
 
 ---
 
-<div align="center">
-
 **Made with 💜 by [The Network Crew Pty Ltd](https://tnc.works) & [Velocity Host Pty Ltd](https://velocityhost.com.au)** 💜
-
-</div>

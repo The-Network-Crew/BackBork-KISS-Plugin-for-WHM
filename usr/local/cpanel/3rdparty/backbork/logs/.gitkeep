@@ -1,0 +1,16 @@
+# BackBork Logs Directory
+#
+# This directory contains operation logs and backup job logs.
+# Created at runtime by BackBork.
+#
+# Files stored here:
+#   - operations.log              : Main JSON-lines log for GUI display (all operations)
+#   - backup_{timestamp}_{id}.log : Per-backup detailed logs with pkgacct output
+#   - restore_{timestamp}_{id}.log: Per-restore detailed logs
+#
+# operations.log format (JSON lines):
+# {"timestamp":"2026-01-10 12:00:00","user":"root","type":"backup_local","items":["account1"],"success":true,"message":"Backup completed","requestor":"cron"}
+#
+# Backup logs contain real-time pkgacct/mariadb-backup output for troubleshooting.
+#
+# Log rotation: Logs older than 30 days are removed by the cleanup cron task.

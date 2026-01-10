@@ -2,7 +2,7 @@
 /**
  *  BackBork KISS :: Open-source Disaster Recovery Plugin (for WHM)
  *   Copyright (C) The Network Crew Pty Ltd & Velocity Host Pty Ltd
- *   https://github.com/The-Network-Crew/BackBork-KISS-Plugin-for-WHM/
+ *   https://github.com/The-Network-Crew/BackBork-KISS-for-WHM/
  *
  *  THIS FILE:
  *   Central initialization handler loading all required classes.
@@ -68,7 +68,7 @@ class BackBorkBootstrap {
     // ========================================================================
     
     /** @var bool Tracks whether init() has already been called */
-    private static $initialized = false;
+    private static $initialised = false;
     
     /** @var BackBorkACL Singleton ACL instance for access control */
     private static $acl = null;
@@ -81,9 +81,9 @@ class BackBorkBootstrap {
     // ========================================================================
     
     /**
-     * Initialize the BackBork application
+     * Initialise the BackBork application
      * 
-     * Loads all required class files, initializes ACL, and optionally
+     * Loads all required class files, initialises ACL, and optionally
      * verifies user permissions. This must be called before using any
      * BackBork functionality.
      * 
@@ -92,7 +92,7 @@ class BackBorkBootstrap {
      */
     public static function init($checkAcl = true) {
         // Prevent double initialization
-        if (self::$initialized) {
+        if (self::$initialised) {
             return true;
         }
         
@@ -121,6 +121,7 @@ class BackBorkBootstrap {
         // Backup engine
         require_once(BACKBORK_BASE_PATH . '/engine/backup/SQL.php');              // Hot DB backups (mariadb-backup/mysqlbackup)
         require_once(BACKBORK_BASE_PATH . '/engine/backup/Pkgacct.php');          // pkgacct wrapper
+        require_once(BACKBORK_BASE_PATH . '/engine/backup/Manifest.php');         // Backup tracking for pruning
         require_once(BACKBORK_BASE_PATH . '/engine/backup/BackupManager.php');    // Backup orchestration
         
         // Restore engine
@@ -140,13 +141,13 @@ class BackBorkBootstrap {
             return false;  // Access denied
         }
         
-        // Mark as initialized
-        self::$initialized = true;
+        // Mark as initialised
+        self::$initialised = true;
         return true;
     }
     
     /**
-     * Initialize for CLI (cron) usage
+     * Initialise for CLI (cron) usage
      * 
      * Skips ACL checks since cron runs as root.
      * Use this instead of init() in cron/handler.php.
@@ -164,7 +165,7 @@ class BackBorkBootstrap {
     /**
      * Get the ACL instance
      * 
-     * Initializes if not already done. Used throughout the app
+     * Initialises if not already done. Used throughout the app
      * for permission checking and user identification.
      * 
      * @return BackBorkACL ACL handler instance
