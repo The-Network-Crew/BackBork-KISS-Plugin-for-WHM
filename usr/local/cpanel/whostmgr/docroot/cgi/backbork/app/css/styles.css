@@ -1121,8 +1121,8 @@
     color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
-    max-width: 350px;
-    max-height: 231px;  /* ~15 lines at 11px font + 1.4 line-height */
+    max-width: 100%;
+    max-height: 110px;
     overflow-y: auto;
     overflow-x: auto;
 }

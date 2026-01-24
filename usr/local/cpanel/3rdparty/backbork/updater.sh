@@ -101,7 +101,7 @@ send_email() {
         return 1
     fi
     
-    echo -e "Subject: ${subject}\nFrom: backbork@${hostname}\nContent-Type: text/plain; charset=UTF-8\n\n${body}" | /usr/sbin/sendmail -t "$to" 2>/dev/null || true
+    echo -e "To: ${to}\nSubject: ${subject}\nFrom: backbork@${hostname}\nContent-Type: text/plain; charset=UTF-8\n\n${body}" | /usr/sbin/sendmail -t 2>/dev/null || true
 }
 
 # Send Slack notification via webhook
@@ -192,15 +192,17 @@ https://backbork.com"
         local slack_color="#dc2626"
     fi
     
-    # Always send to root email (ensures visibility even if plugin notifications fail)
-    log "Sending notification to root: ${root_email}"
-    send_email "$root_email" "$subject" "$body"
-    
-    # Send to plugin-configured email if different from root
-    if [ -n "$NOTIFY_EMAIL" ] && [ "$NOTIFY_EMAIL" != "$root_email" ]; then
-        log "Sending notification to plugin contact: ${NOTIFY_EMAIL}"
-        send_email "$NOTIFY_EMAIL" "$subject" "$body"
+    # Send email notification
+    # Use plugin-configured email if set, otherwise fall back to root email
+    local email_recipient=""
+    if [ -n "$NOTIFY_EMAIL" ]; then
+        email_recipient="$NOTIFY_EMAIL"
+        log "Sending notification to plugin contact: ${email_recipient}"
+    else
+        email_recipient="$root_email"
+        log "Sending notification to root: ${email_recipient}"
     fi
+    send_email "$email_recipient" "$subject" "$body"
     
     # Send Slack notification if configured
     if [ -n "$SLACK_WEBHOOK" ]; then
