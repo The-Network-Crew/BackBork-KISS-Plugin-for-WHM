@@ -911,6 +911,14 @@
     border-color: var(--border-default);
     color: var(--text-primary);
 }
+.checkbox-group label.disabled-option {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.checkbox-group label.disabled-option:hover {
+    border-color: var(--border-light);
+    color: var(--text-secondary);
+}
 .checkbox-group input[type="checkbox"] {
     width: 16px;
     height: 16px;

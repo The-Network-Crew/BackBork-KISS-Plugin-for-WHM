@@ -304,11 +304,11 @@ $settingsIsRoot = $settingsAcl->isRoot();     // Check if current user is root
 
         <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">Backup Mode</h4>
         <div class="checkbox-group">
-            <label><input type="checkbox" id="opt-incremental"> Incremental (refresh existing)</label>
             <?php if ($settingsIsRoot): ?>
             <label><input type="checkbox" id="opt-split"> Split into chunks</label>
             <label><input type="checkbox" id="opt-use-backups"> Use last backup as template</label>
             <?php endif; ?>
+            <label class="disabled-option"><input type="checkbox" id="opt-incremental" disabled> Incremental (coming soon)</label>
         </div>
 
         <h4 style="margin: 20px 0 12px 0; font-size: 13px; color: var(--text-secondary);">Exclude from Backup</h4>
